@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 
 	"romerramos/trimia/internal/api"
 	"romerramos/trimia/internal/trimia"
@@ -81,17 +82,18 @@ func newRootCommand() *cobra.Command {
 func newServeCommand() *cobra.Command {
 	var addr string
 	var dataDir string
+	var uploadTokenSecret string
+	var allowedOrigin string
+	var maxUploadBytes int64
+	var logFormat string
 
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run the Trimia HTTP API server",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if _, err := os.Stat(".env"); err == nil {
-				if err := godotenv.Load(); err != nil {
-					return fmt.Errorf("load .env: %w", err)
-				}
-			} else if !os.IsNotExist(err) {
-				return fmt.Errorf("check .env: %w", err)
+			envFile, err := loadLocalEnv()
+			if err != nil {
+				return err
 			}
 
 			apiKey, err := resolveDeepgramAPIKey()
@@ -99,20 +101,102 @@ func newServeCommand() *cobra.Command {
 				return err
 			}
 
-			server, err := api.NewServer(api.Options{DeepgramAPIKey: apiKey, DataDir: dataDir})
+			if uploadTokenSecret == "" {
+				uploadTokenSecret = os.Getenv("TRIMIA_UPLOAD_TOKEN_SECRET")
+			}
+			if allowedOrigin == "" {
+				allowedOrigin = os.Getenv("TRIMIA_ALLOWED_ORIGIN")
+			}
+			if maxUploadBytes == 0 {
+				parsed, err := parseOptionalInt64Env("TRIMIA_MAX_UPLOAD_BYTES")
+				if err != nil {
+					return err
+				}
+				maxUploadBytes = parsed
+			}
+			if logFormat == "" {
+				logFormat = os.Getenv("TRIMIA_LOG_FORMAT")
+			}
+			parsedLogFormat, err := api.ParseLogFormat(logFormat)
 			if err != nil {
 				return err
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "Trimia API listening on http://%s\n", addr)
+			server, err := api.NewServer(api.Options{
+				DeepgramAPIKey:    apiKey,
+				DataDir:           dataDir,
+				UploadTokenSecret: uploadTokenSecret,
+				AllowedOrigin:     allowedOrigin,
+				MaxUploadBytes:    maxUploadBytes,
+				LogFormat:         parsedLogFormat,
+			})
+			if err != nil {
+				return err
+			}
+
+			out := cmd.OutOrStdout()
+			fmt.Fprintf(out, "Trimia API listening on http://%s\n", addr)
+			fmt.Fprintf(out, "Env file: %s\n", displayEnvFile(envFile))
+			fmt.Fprintf(out, "Data dir: %s\n", server.DataDir())
+			fmt.Fprintf(out, "Uploads dir: %s\n", server.UploadsDir())
+			fmt.Fprintf(out, "Upload auth: %s\n", enabledText(server.UploadAuthEnabled()))
+			fmt.Fprintf(out, "Allowed origin: %s\n", server.AllowedOrigin())
+			fmt.Fprintf(out, "Max upload bytes: %d\n", server.MaxUploadBytes())
+			fmt.Fprintf(out, "Log format: %s\n", parsedLogFormat)
 			return http.ListenAndServe(addr, server.Handler())
 		},
 	}
 
 	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1:3333", "HTTP API listen address")
 	cmd.Flags().StringVar(&dataDir, "data-dir", "", "directory for uploaded and rendered media")
+	cmd.Flags().StringVar(&uploadTokenSecret, "upload-token-secret", "", "secret used to validate browser upload tokens; falls back to TRIMIA_UPLOAD_TOKEN_SECRET")
+	cmd.Flags().StringVar(&allowedOrigin, "allowed-origin", "", "allowed browser origin for media uploads; falls back to TRIMIA_ALLOWED_ORIGIN")
+	cmd.Flags().Int64Var(&maxUploadBytes, "max-upload-bytes", 0, "maximum upload size in bytes; falls back to TRIMIA_MAX_UPLOAD_BYTES or 5 GiB")
+	cmd.Flags().StringVar(&logFormat, "log-format", "", "log format: human or json; falls back to TRIMIA_LOG_FORMAT")
 
 	return cmd
+}
+
+func loadLocalEnv() (string, error) {
+	for _, path := range []string{".env", "../.env"} {
+		if _, err := os.Stat(path); err == nil {
+			if err := godotenv.Load(path); err != nil {
+				return "", fmt.Errorf("load %s: %w", path, err)
+			}
+			return path, nil
+		} else if !os.IsNotExist(err) {
+			return "", fmt.Errorf("check %s: %w", path, err)
+		}
+	}
+
+	return "", nil
+}
+
+func displayEnvFile(path string) string {
+	if path == "" {
+		return "not found"
+	}
+	return path
+}
+
+func enabledText(enabled bool) string {
+	if enabled {
+		return "enabled"
+	}
+	return "disabled"
+}
+
+func parseOptionalInt64Env(name string) (int64, error) {
+	value := os.Getenv(name)
+	if value == "" {
+		return 0, nil
+	}
+
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse %s: %w", name, err)
+	}
+	return parsed, nil
 }
 
 func newConnectCommand() *cobra.Command {

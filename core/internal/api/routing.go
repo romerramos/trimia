@@ -14,6 +14,18 @@ func splitJobPath(path string) (string, string) {
 	return parts[0], parts[1]
 }
 
+func splitMediaPath(path string) (string, string) {
+	rest := strings.TrimPrefix(path, "/api/media/")
+	parts := strings.Split(strings.Trim(rest, "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		return "", ""
+	}
+	if len(parts) == 1 {
+		return parts[0], ""
+	}
+	return parts[0], parts[1]
+}
+
 func apiPhase(phase string) string {
 	switch phase {
 	case "Extracting audio":

@@ -142,10 +142,19 @@ By default, Trimia writes next to the input as `<input-name>_trimia.mp4`. You ca
 Run the local API server for the future SvelteKit app:
 
 ```sh
-./dist/trimia serve --addr 127.0.0.1:3333 --data-dir tmp/api
+cd core
+go run ./cmd/trimia serve \
+  --addr 127.0.0.1:3333 \
+  --data-dir ../tmp/api \
+  --upload-token-secret "$TRIMIA_UPLOAD_TOKEN_SECRET" \
+  --allowed-origin http://localhost:5173
 ```
 
 The API keeps uploaded videos and rendered outputs on the Go server. Clients should use IDs and URLs instead of filesystem paths.
+
+For browser uploads from the SvelteKit app, set the same `TRIMIA_UPLOAD_TOKEN_SECRET` in `web/.env` and `core/.env`. The protected `/upload` page signs a short-lived JWT after checking Better Auth, then the browser uploads directly to Trimia. This keeps large files out of the SvelteKit request pipeline and allows multi-GB uploads. Uploaded files are stored under `<data-dir>/uploads`. The API defaults to a 5 GiB upload ceiling; override it with `--max-upload-bytes` or `TRIMIA_MAX_UPLOAD_BYTES`.
+
+When started from `core`, the API loads `core/.env`, prints its non-secret upload configuration, and logs each request with status and duration. Upload token failures are logged with a specific reason, such as `invalid jwt signature` or `expired token`. Logs default to compact `human` output; set `TRIMIA_LOG_FORMAT=json` or pass `--log-format json` for structured logs.
 
 Minimal flow:
 
