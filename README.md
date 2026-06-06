@@ -16,6 +16,32 @@ brew install ffmpeg
 
 ## Setup
 
+### Install Released Binary
+
+Install the latest release on Linux or macOS:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/romerramos/trimia/main/scripts/install.sh | sh
+```
+
+Install a specific release tag:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/romerramos/trimia/main/scripts/install.sh | VERSION=v0.1.0 sh
+```
+
+Install to a custom directory:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/romerramos/trimia/main/scripts/install.sh | INSTALL_DIR="$HOME/.local/bin" sh
+```
+
+Run the same latest-release command again to update Trimia to the newest GitHub release.
+
+The installer downloads from GitHub Releases, verifies the archive against `checksums.txt`, and installs the `trimia` binary. It supports Linux and macOS on `amd64` and `arm64`.
+
+### Build From Source
+
 Install Go dependencies:
 
 ```sh
@@ -135,3 +161,18 @@ Remove build artifacts:
 ```sh
 make clean
 ```
+
+## Releases
+
+Releases are built by GitHub Actions with GoReleaser when a `v*` tag is pushed. The workflow verifies that the tagged commit is reachable from `main` before publishing.
+
+Create a release from `main`:
+
+```sh
+git checkout main
+git pull origin main
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+GoReleaser publishes archives for Linux, macOS, and Windows on `amd64` and `arm64`, plus a `checksums.txt` file used by the installer.

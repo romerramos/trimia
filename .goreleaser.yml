@@ -1,0 +1,47 @@
+version: 2
+
+project_name: trimia
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: trimia
+    main: ./cmd/trimia
+    binary: trimia
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X romerramos/trimia/internal/cli.version={{.Version}} -X romerramos/trimia/internal/cli.commit={{.Commit}} -X romerramos/trimia/internal/cli.date={{.Date}}
+
+archives:
+  - id: trimia
+    ids:
+      - trimia
+    name_template: '{{ .ProjectName }}_{{ title .Os }}_{{ if eq .Arch "amd64" }}x86_64{{ else }}{{ .Arch }}{{ end }}'
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  github:
+    owner: romerramos
+    name: trimia
+  draft: false
+  prerelease: auto

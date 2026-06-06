@@ -37,8 +37,9 @@ func newRootCommand() *cobra.Command {
 	opts := options{}
 
 	cmd := &cobra.Command{
-		Use:   "trimia",
-		Short: "Remove silence and filler words from videos",
+		Use:     "trimia",
+		Short:   "Remove silence and filler words from videos",
+		Version: versionString(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(cmd.Context(), opts)
 		},
