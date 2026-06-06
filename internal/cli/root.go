@@ -59,6 +59,8 @@ func newRootCommand() *cobra.Command {
 	cmd.Flags().IntVar(&opts.videoCRF, "crf", 18, "x264 CRF quality; lower is higher quality")
 	cmd.Flags().StringVar(&opts.audioRate, "audio-rate", "320k", "output audio bitrate")
 	cmd.AddCommand(newConnectCommand())
+	cmd.AddCommand(newDisconnectCommand())
+	cmd.AddCommand(newConfigCommand())
 
 	return cmd
 }
@@ -68,7 +70,7 @@ func newConnectCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "connect",
-		Short: "Save your Deepgram API key in the OS credential store",
+		Short: "Save your Deepgram API key",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
 				if _, err := loadDeepgramAPIKey(); err == nil {
@@ -81,11 +83,12 @@ func newConnectCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := saveDeepgramAPIKey(key); err != nil {
+			result, err := saveDeepgramAPIKey(key)
+			if err != nil {
 				return fmt.Errorf("save Deepgram API key: %w", err)
 			}
 
-			fmt.Fprintln(cmd.OutOrStdout(), "Deepgram API key saved.")
+			printCredentialSaveResult(cmd, result)
 			return nil
 		},
 	}
@@ -93,6 +96,87 @@ func newConnectCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&force, "force", false, "replace an existing saved Deepgram API key")
 
 	return cmd
+}
+
+func newDisconnectCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "disconnect",
+		Short: "Remove saved Deepgram API credentials",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			removedKeyring, keyringErr := deleteKeyringDeepgramAPIKey()
+			if keyringErr != nil && !isKeyringUnavailable(keyringErr) {
+				return fmt.Errorf("delete OS secure store credential: %w", keyringErr)
+			}
+
+			removedFallback, fallbackPath, err := deleteFallbackDeepgramAPIKey()
+			if err != nil {
+				return fmt.Errorf("delete fallback config file: %w", err)
+			}
+
+			if removedKeyring {
+				fmt.Fprintln(cmd.OutOrStdout(), "Removed Deepgram API key from OS secure store.")
+			}
+			if removedFallback {
+				fmt.Fprintf(cmd.OutOrStdout(), "Removed fallback config file: %s\n", fallbackPath)
+			}
+			if !removedKeyring && !removedFallback {
+				fmt.Fprintln(cmd.OutOrStdout(), "No saved Deepgram API key was found.")
+			}
+			if keyringErr != nil && isKeyringUnavailable(keyringErr) {
+				fmt.Fprintln(cmd.ErrOrStderr(), "OS secure store was unavailable; checked fallback file only.")
+			}
+
+			return nil
+		},
+	}
+
+	return cmd
+}
+
+func newConfigCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "config",
+		Short: "Show credential storage metadata",
+		Run: func(cmd *cobra.Command, args []string) {
+			metadata := inspectCredentialMetadata()
+			out := cmd.OutOrStdout()
+
+			fmt.Fprintf(out, "Credential source: %s\n", metadata.Source)
+			fmt.Fprintf(out, "Environment variable: %s\n", metadata.EnvironmentVariable)
+			fmt.Fprintf(out, "OS secure store provider: %s\n", metadata.Provider)
+			fmt.Fprintf(out, "OS secure store service: %s\n", metadata.Service)
+			fmt.Fprintf(out, "OS secure store username: %s\n", metadata.Username)
+			if metadata.KeyringAvailable {
+				fmt.Fprintln(out, "OS secure store status: available")
+			} else {
+				fmt.Fprintln(out, "OS secure store status: unavailable")
+			}
+			if metadata.KeyringError != nil {
+				fmt.Fprintf(out, "OS secure store error: %v\n", metadata.KeyringError)
+			}
+			fmt.Fprintf(out, "Fallback config file: %s\n", metadata.FallbackPath)
+			fmt.Fprintln(out, "Fallback config encrypted: no")
+			if metadata.FallbackExists {
+				fmt.Fprintf(out, "Fallback config permissions: %04o\n", metadata.FallbackMode)
+			} else {
+				fmt.Fprintln(out, "Fallback config exists: no")
+			}
+		},
+	}
+
+	return cmd
+}
+
+func printCredentialSaveResult(cmd *cobra.Command, result saveCredentialResult) {
+	switch result.Source {
+	case credentialSourceKeyring:
+		fmt.Fprintln(cmd.OutOrStdout(), "Deepgram API key saved to OS secure store.")
+	case credentialSourceFallback:
+		fmt.Fprintf(cmd.OutOrStdout(), "Deepgram API key saved to fallback config file: %s\n", result.FallbackPath)
+		fmt.Fprintln(cmd.ErrOrStderr(), "Warning: fallback config is not encrypted. File permissions were set to 0600.")
+	default:
+		fmt.Fprintln(cmd.OutOrStdout(), "Deepgram API key saved.")
+	}
 }
 
 func run(ctx context.Context, opts options) error {
