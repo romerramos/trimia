@@ -4,10 +4,11 @@ project_name: trimia
 
 before:
   hooks:
-    - go mod tidy
+    - cd core && go mod tidy
 
 builds:
   - id: trimia
+    dir: core
     main: ./cmd/trimia
     binary: trimia
     env:
@@ -34,7 +35,7 @@ archives:
         formats:
           - zip
     files:
-      - ../README.md
+      - README.md
 
 checksum:
   name_template: checksums.txt
