@@ -7,16 +7,27 @@ import (
 	"testing"
 
 	"romerramos/trimia/internal/deepgram"
-	"romerramos/trimia/internal/ffmpeg"
+	"romerramos/trimia/pkg/ffmpeg"
 )
 
-type fakeAudioExtractor struct {
-	opts ffmpeg.ExtractAudioOptions
+type fakeMediaProcessor struct {
+	extractOpts ffmpeg.ExtractAudioOptions
+	cutOpts     ffmpeg.CutVideoOptions
+	durations   map[string]float64
 }
 
-func (f *fakeAudioExtractor) ExtractAudio(_ context.Context, opts ffmpeg.ExtractAudioOptions) error {
-	f.opts = opts
+func (f *fakeMediaProcessor) ExtractAudio(_ context.Context, opts ffmpeg.ExtractAudioOptions) error {
+	f.extractOpts = opts
 	return os.WriteFile(opts.OutputPath, []byte("audio"), 0644)
+}
+
+func (f *fakeMediaProcessor) CutVideo(_ context.Context, opts ffmpeg.CutVideoOptions) error {
+	f.cutOpts = opts
+	return nil
+}
+
+func (f *fakeMediaProcessor) ProbeDuration(_ context.Context, path string) (float64, error) {
+	return f.durations[path], nil
 }
 
 type fakeTranscriber struct {
@@ -29,23 +40,6 @@ func (f *fakeTranscriber) Transcribe(_ context.Context, opts deepgram.Transcribe
 	return f.response, nil
 }
 
-type fakeVideoCutter struct {
-	opts ffmpeg.CutVideoOptions
-}
-
-func (f *fakeVideoCutter) CutVideo(_ context.Context, opts ffmpeg.CutVideoOptions) error {
-	f.opts = opts
-	return nil
-}
-
-type fakeDurationProber struct {
-	durations map[string]float64
-}
-
-func (f fakeDurationProber) ProbeDuration(_ context.Context, path string) (float64, error) {
-	return f.durations[path], nil
-}
-
 func TestProcessOrchestratesTrimPipeline(t *testing.T) {
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "input.mp4")
@@ -54,21 +48,18 @@ func TestProcessOrchestratesTrimPipeline(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	audioExtractor := &fakeAudioExtractor{}
+	mediaProcessor := &fakeMediaProcessor{durations: map[string]float64{
+		inputPath:  10,
+		outputPath: 6,
+	}}
 	transcriber := &fakeTranscriber{response: transcriptionResponseWithWords()}
-	videoCutter := &fakeVideoCutter{}
 
-	processor := processor{
-		audioExtractor: audioExtractor,
+	pipeline := pipeline{
+		mediaProcessor: mediaProcessor,
 		transcriber:    transcriber,
-		videoCutter:    videoCutter,
-		durationProber: fakeDurationProber{durations: map[string]float64{
-			inputPath:  10,
-			outputPath: 6,
-		}},
 	}
 
-	result, err := processor.Process(context.Background(), ProcessOptions{
+	result, err := pipeline.Run(context.Background(), ProcessOptions{
 		InputPath:      inputPath,
 		OutputPath:     outputPath,
 		DeepgramAPIKey: "test-key",
@@ -78,20 +69,20 @@ func TestProcessOrchestratesTrimPipeline(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if audioExtractor.opts.InputPath != inputPath {
-		t.Fatalf("audio input = %q, want %q", audioExtractor.opts.InputPath, inputPath)
+	if mediaProcessor.extractOpts.InputPath != inputPath {
+		t.Fatalf("audio input = %q, want %q", mediaProcessor.extractOpts.InputPath, inputPath)
 	}
 
-	if audioExtractor.opts.OutputPath == "" {
+	if mediaProcessor.extractOpts.OutputPath == "" {
 		t.Fatal("expected temp audio path")
 	}
 
-	if _, err := os.Stat(audioExtractor.opts.OutputPath); !os.IsNotExist(err) {
+	if _, err := os.Stat(mediaProcessor.extractOpts.OutputPath); !os.IsNotExist(err) {
 		t.Fatalf("expected temp audio to be removed, stat err = %v", err)
 	}
 
-	if transcriber.opts.AudioPath != audioExtractor.opts.OutputPath {
-		t.Fatalf("transcribe audio = %q, want %q", transcriber.opts.AudioPath, audioExtractor.opts.OutputPath)
+	if transcriber.opts.AudioPath != mediaProcessor.extractOpts.OutputPath {
+		t.Fatalf("transcribe audio = %q, want %q", transcriber.opts.AudioPath, mediaProcessor.extractOpts.OutputPath)
 	}
 
 	if !transcriber.opts.DetectLanguage {
@@ -102,16 +93,16 @@ func TestProcessOrchestratesTrimPipeline(t *testing.T) {
 		t.Fatalf("unexpected transcription opts: %#v", transcriber.opts)
 	}
 
-	if videoCutter.opts.InputPath != inputPath || videoCutter.opts.OutputPath != outputPath {
-		t.Fatalf("cut opts = %#v", videoCutter.opts)
+	if mediaProcessor.cutOpts.InputPath != inputPath || mediaProcessor.cutOpts.OutputPath != outputPath {
+		t.Fatalf("cut opts = %#v", mediaProcessor.cutOpts)
 	}
 
-	if videoCutter.opts.PreRoll != defaultPreRoll || videoCutter.opts.PostRoll != defaultPostRoll || videoCutter.opts.MergeGap != defaultMergeGap {
-		t.Fatalf("expected default cut timing opts, got %#v", videoCutter.opts)
+	if mediaProcessor.cutOpts.PreRoll != defaultPreRoll || mediaProcessor.cutOpts.PostRoll != defaultPostRoll || mediaProcessor.cutOpts.MergeGap != defaultMergeGap {
+		t.Fatalf("expected default cut timing opts, got %#v", mediaProcessor.cutOpts)
 	}
 
-	if len(videoCutter.opts.Segments) != 1 || videoCutter.opts.Segments[0].Start != 0.3 || videoCutter.opts.Segments[0].End != 1.2 {
-		t.Fatalf("segments = %#v", videoCutter.opts.Segments)
+	if len(mediaProcessor.cutOpts.Segments) != 1 || mediaProcessor.cutOpts.Segments[0].Start != 0.3 || mediaProcessor.cutOpts.Segments[0].End != 1.2 {
+		t.Fatalf("segments = %#v", mediaProcessor.cutOpts.Segments)
 	}
 
 	if result.OriginalTranscript != "um Hello world." {
@@ -146,18 +137,16 @@ func TestProcessUsesExplicitTimingOptions(t *testing.T) {
 	preRoll := 0.0
 	postRoll := 0.04
 	mergeGap := 0.08
-	videoCutter := &fakeVideoCutter{}
-	processor := processor{
-		audioExtractor: &fakeAudioExtractor{},
+	mediaProcessor := &fakeMediaProcessor{durations: map[string]float64{
+		inputPath:  10,
+		outputPath: 7,
+	}}
+	pipeline := pipeline{
+		mediaProcessor: mediaProcessor,
 		transcriber:    &fakeTranscriber{response: transcriptionResponseWithWords()},
-		videoCutter:    videoCutter,
-		durationProber: fakeDurationProber{durations: map[string]float64{
-			inputPath:  10,
-			outputPath: 7,
-		}},
 	}
 
-	_, err := processor.Process(context.Background(), ProcessOptions{
+	_, err := pipeline.Run(context.Background(), ProcessOptions{
 		InputPath:      inputPath,
 		OutputPath:     outputPath,
 		DeepgramAPIKey: "test-key",
@@ -169,8 +158,8 @@ func TestProcessUsesExplicitTimingOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if videoCutter.opts.PreRoll != preRoll || videoCutter.opts.PostRoll != postRoll || videoCutter.opts.MergeGap != mergeGap {
-		t.Fatalf("timing opts = %#v", videoCutter.opts)
+	if mediaProcessor.cutOpts.PreRoll != preRoll || mediaProcessor.cutOpts.PostRoll != postRoll || mediaProcessor.cutOpts.MergeGap != mergeGap {
+		t.Fatalf("timing opts = %#v", mediaProcessor.cutOpts)
 	}
 }
 
@@ -182,18 +171,16 @@ func TestProcessCanKeepTempAudio(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	audioExtractor := &fakeAudioExtractor{}
-	processor := processor{
-		audioExtractor: audioExtractor,
+	mediaProcessor := &fakeMediaProcessor{durations: map[string]float64{
+		inputPath:  10,
+		outputPath: 6,
+	}}
+	pipeline := pipeline{
+		mediaProcessor: mediaProcessor,
 		transcriber:    &fakeTranscriber{response: transcriptionResponseWithWords()},
-		videoCutter:    &fakeVideoCutter{},
-		durationProber: fakeDurationProber{durations: map[string]float64{
-			inputPath:  10,
-			outputPath: 6,
-		}},
 	}
 
-	result, err := processor.Process(context.Background(), ProcessOptions{
+	result, err := pipeline.Run(context.Background(), ProcessOptions{
 		InputPath:      inputPath,
 		OutputPath:     outputPath,
 		DeepgramAPIKey: "test-key",
@@ -237,16 +224,14 @@ func TestProcessFailsWhenNoSpeechSegmentsFound(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	processor := processor{
-		audioExtractor: &fakeAudioExtractor{},
-		transcriber:    &fakeTranscriber{response: &deepgram.TranscriptionResponse{}},
-		videoCutter:    &fakeVideoCutter{},
-		durationProber: fakeDurationProber{durations: map[string]float64{
+	pipeline := pipeline{
+		mediaProcessor: &fakeMediaProcessor{durations: map[string]float64{
 			inputPath: 10,
 		}},
+		transcriber: &fakeTranscriber{response: &deepgram.TranscriptionResponse{}},
 	}
 
-	_, err := processor.Process(context.Background(), ProcessOptions{
+	_, err := pipeline.Run(context.Background(), ProcessOptions{
 		InputPath:      inputPath,
 		OutputPath:     outputPath,
 		DeepgramAPIKey: "test-key",

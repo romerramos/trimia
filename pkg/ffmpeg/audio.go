@@ -24,6 +24,10 @@ type ExtractAudioOptions struct {
 }
 
 func ExtractAudio(ctx context.Context, opts ExtractAudioOptions) error {
+	return NewClient().ExtractAudio(ctx, opts)
+}
+
+func (*Client) ExtractAudio(ctx context.Context, opts ExtractAudioOptions) error {
 	args, err := extractAudioArgs(opts)
 	if err != nil {
 		return err

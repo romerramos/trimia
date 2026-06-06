@@ -11,6 +11,10 @@ import (
 )
 
 func ProbeDuration(ctx context.Context, path string) (float64, error) {
+	return NewClient().ProbeDuration(ctx, path)
+}
+
+func (*Client) ProbeDuration(ctx context.Context, path string) (float64, error) {
 	if path == "" {
 		return 0, errors.New("path is required")
 	}

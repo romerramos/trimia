@@ -47,6 +47,10 @@ type CutVideoOptions struct {
 }
 
 func CutVideo(ctx context.Context, opts CutVideoOptions) error {
+	return NewClient().CutVideo(ctx, opts)
+}
+
+func (*Client) CutVideo(ctx context.Context, opts CutVideoOptions) error {
 	segments, err := prepareSegments(opts.Segments, opts.PreRoll, opts.PostRoll, opts.MergeGap)
 	if err != nil {
 		return err
