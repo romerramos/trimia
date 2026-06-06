@@ -66,7 +66,7 @@ func saveDeepgramAPIKey(key string) error {
 
 func promptDeepgramAPIKey() (string, error) {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return "", fmt.Errorf("Deepgram API key is required. Set %s or run `trimia connect`. Create a Deepgram account and get your first $200 in credits for free: https://deepgram.com/", deepgramEnvVar)
+		return "", fmt.Errorf("Trimia needs a Deepgram API key to process videos. Create a Deepgram account, then run `trimia connect` to save your key. For scripts or CI, set %s. Learn more: https://deepgram.com/", deepgramEnvVar)
 	}
 
 	printDeepgramConnectMessage()

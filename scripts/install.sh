@@ -3,7 +3,7 @@ set -eu
 
 REPO="${TRIMIA_REPO:-romerramos/trimia}"
 VERSION="${VERSION:-latest}"
-INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
+INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 BINARY="trimia"
 
 need() {
@@ -93,10 +93,19 @@ target="$INSTALL_DIR/$BINARY"
 if [ -w "$INSTALL_DIR" ]; then
   install -m 0755 "$tmpdir/$BINARY" "$target"
 else
-  echo "trimia installer: $INSTALL_DIR is not writable, trying sudo" >&2
-  sudo install -m 0755 "$tmpdir/$BINARY" "$target"
+  echo "trimia installer: $INSTALL_DIR is not writable." >&2
+  echo "Choose a user-writable INSTALL_DIR, or run the install command manually with sudo if you trust it." >&2
+  exit 1
 fi
 
 echo "trimia installed to $target"
+case ":$PATH:" in
+  *":$INSTALL_DIR:"*) ;;
+  *)
+    echo "Add this to your shell profile if needed:"
+    echo "  export PATH=\"$INSTALL_DIR:\$PATH\""
+    ;;
+esac
 echo "Run: trimia --version"
-echo "Note: ffmpeg, ffprobe, and DEEPGRAM_API_KEY are required at runtime."
+echo "Note: Trimia needs ffmpeg/ffprobe and a Deepgram API key to process videos."
+echo "Create a Deepgram account to get an API key, then run: trimia connect"

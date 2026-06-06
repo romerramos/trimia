@@ -3,7 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
-	"log"
+	"os"
 
 	"romerramos/trimia/internal/trimia"
 
@@ -96,8 +96,12 @@ func newConnectCommand() *cobra.Command {
 }
 
 func run(ctx context.Context, opts options) error {
-	if err := godotenv.Load(); err != nil {
-		log.Printf("No .env file loaded: %v", err)
+	if _, err := os.Stat(".env"); err == nil {
+		if err := godotenv.Load(); err != nil {
+			return fmt.Errorf("load .env: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("check .env: %w", err)
 	}
 
 	apiKey, err := resolveDeepgramAPIKey()

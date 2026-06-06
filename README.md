@@ -24,6 +24,8 @@ Install the latest release on Linux or macOS:
 curl -fsSL https://raw.githubusercontent.com/romerramos/trimia/main/scripts/install.sh | sh
 ```
 
+By default, the installer places `trimia` in `$HOME/.local/bin` and does not ask for `sudo`. If that directory is not in your `PATH`, the installer prints the shell line to add.
+
 Install a specific release tag:
 
 ```sh
@@ -36,9 +38,17 @@ Install to a custom directory:
 curl -fsSL https://raw.githubusercontent.com/romerramos/trimia/main/scripts/install.sh | INSTALL_DIR="$HOME/.local/bin" sh
 ```
 
+If you prefer to inspect the installer before running it:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/romerramos/trimia/main/scripts/install.sh -o install.sh
+less install.sh
+sh install.sh
+```
+
 Run the same latest-release command again to update Trimia to the newest GitHub release.
 
-The installer downloads from GitHub Releases, verifies the archive against `checksums.txt`, and installs the `trimia` binary. It supports Linux and macOS on `amd64` and `arm64`.
+The installer downloads from GitHub Releases, verifies the archive against `checksums.txt`, and installs the `trimia` binary. It supports Linux and macOS on `amd64` and `arm64`. It only writes to the selected install directory.
 
 ### Build From Source
 
@@ -48,7 +58,7 @@ Install Go dependencies:
 go mod download
 ```
 
-Save your Deepgram API key in the OS credential store:
+Trimia uses Deepgram for transcription. Create a Deepgram account to get an API key, then save it securely in the OS credential store:
 
 ```sh
 trimia connect
@@ -56,9 +66,9 @@ trimia connect
 
 You can create a Deepgram account and get your first $200 in credits for free at <https://deepgram.com/>.
 
-Trimia checks `DEEPGRAM_API_KEY` first, then checks the OS credential store. If neither exists during an interactive run, Trimia prompts for the key and saves it.
+Trimia checks the OS credential store during normal interactive use. If no key is saved yet, Trimia prompts for it and saves it.
 
-You can still provide the key through your shell environment:
+For scripts or CI, you can also provide the key through the `DEEPGRAM_API_KEY` environment variable:
 
 ```sh
 export DEEPGRAM_API_KEY=your_deepgram_api_key_here
