@@ -4,7 +4,7 @@ project_name: trimia
 
 before:
   hooks:
-    - cd core && go mod tidy
+    - go -C core mod tidy
 
 builds:
   - id: trimia
