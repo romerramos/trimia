@@ -36,15 +36,25 @@ func newRootCommand() *cobra.Command {
 	opts := options{}
 
 	cmd := &cobra.Command{
-		Use:     "trimia",
-		Short:   "Remove silence and filler words from videos",
-		Version: versionString(),
+		Use:           "trimia [input]",
+		Short:         "Remove silence and filler words from videos",
+		Version:       versionString(),
+		Args:          cobra.MaximumNArgs(1),
+		SilenceUsage:  true,
+		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 {
+				if cmd.Flags().Changed("input") {
+					return fmt.Errorf("use either positional input or --input, not both")
+				}
+				opts.inputPath = args[0]
+			}
+
 			return run(cmd.Context(), opts)
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.inputPath, "input", "inputs/test.mov", "input video path")
+	cmd.Flags().StringVar(&opts.inputPath, "input", "", "input video path")
 	cmd.Flags().StringVar(&opts.outputPath, "output", "", "output video path")
 	cmd.Flags().BoolVar(&opts.overwrite, "overwrite", true, "overwrite output file")
 	cmd.Flags().StringVar(&opts.language, "language", "", "Deepgram language code; empty enables language detection")
@@ -96,6 +106,10 @@ func newConnectCommand() *cobra.Command {
 }
 
 func run(ctx context.Context, opts options) error {
+	if opts.inputPath == "" {
+		return fmt.Errorf("input video path is required")
+	}
+
 	if _, err := os.Stat(".env"); err == nil {
 		if err := godotenv.Load(); err != nil {
 			return fmt.Errorf("load .env: %w", err)

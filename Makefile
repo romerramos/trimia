@@ -1,18 +1,18 @@
 BINARY := dist/trimia
-INPUT ?= inputs/test.mov
+INPUT ?=
 OUTPUT ?=
 
 .PHONY: build run test clean
 
 build:
 	mkdir -p dist
-	go build -o $(BINARY) ./cmd/trimia
+	cd core && go build -o ../$(BINARY) ./cmd/trimia
 
 run: build
-	$(BINARY) -input $(INPUT) $(if $(OUTPUT),-output $(OUTPUT),)
+	$(BINARY) $(INPUT) $(if $(OUTPUT),--output $(OUTPUT),)
 
 test:
-	go test ./...
+	cd core && go test ./...
 
 clean:
 	rm -rf dist

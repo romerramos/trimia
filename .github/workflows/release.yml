@@ -25,11 +25,13 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version-file: core/go.mod
           cache: true
+          cache-dependency-path: core/go.sum
 
       - name: Run tests
         run: go test ./...
+        working-directory: core
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
@@ -37,5 +39,6 @@ jobs:
           distribution: goreleaser
           version: latest
           args: release --clean
+          workdir: core
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

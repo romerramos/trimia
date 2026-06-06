@@ -243,7 +243,7 @@ func TestProcessFailsWhenNoSpeechSegmentsFound(t *testing.T) {
 
 func TestDefaultOutputPath(t *testing.T) {
 	got := DefaultOutputPath("/videos/demo.mp4")
-	want := "outputs/demo_trimia.mp4"
+	want := "/videos/demo_trimia.mp4"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}

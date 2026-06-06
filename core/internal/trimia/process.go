@@ -160,5 +160,5 @@ func toFFmpegSegments(segments []Segment) []ffmpeg.Segment {
 func DefaultOutputPath(inputPath string) string {
 	ext := filepath.Ext(inputPath)
 	base := strings.TrimSuffix(filepath.Base(inputPath), ext)
-	return filepath.Join("outputs", base+"_trimia.mp4")
+	return filepath.Join(filepath.Dir(inputPath), base+"_trimia.mp4")
 }

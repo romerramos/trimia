@@ -2,8 +2,5 @@
 .DS_Store
 tmp/*
 !tmp/.keep
-inputs/*
-!inputs/.keep
-outputs/*
-!outputs/.keep
 dist/
+test.mov

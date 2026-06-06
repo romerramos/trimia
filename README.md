@@ -21,7 +21,7 @@ brew install ffmpeg
 Install the latest release on Linux or macOS:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/romerramos/trimia/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/romerramos/trimia/main/core/scripts/install.sh | sh
 ```
 
 By default, the installer places `trimia` in `$HOME/.local/bin` and does not ask for `sudo`. If that directory is not in your `PATH`, the installer prints the shell line to add.
@@ -29,19 +29,19 @@ By default, the installer places `trimia` in `$HOME/.local/bin` and does not ask
 Install a specific release tag:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/romerramos/trimia/main/scripts/install.sh | VERSION=v0.1.0 sh
+curl -fsSL https://raw.githubusercontent.com/romerramos/trimia/main/core/scripts/install.sh | VERSION=v0.1.0 sh
 ```
 
 Install to a custom directory:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/romerramos/trimia/main/scripts/install.sh | INSTALL_DIR="$HOME/.local/bin" sh
+curl -fsSL https://raw.githubusercontent.com/romerramos/trimia/main/core/scripts/install.sh | INSTALL_DIR="$HOME/.local/bin" sh
 ```
 
 If you prefer to inspect the installer before running it:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/romerramos/trimia/main/scripts/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/romerramos/trimia/main/core/scripts/install.sh -o install.sh
 less install.sh
 sh install.sh
 ```
@@ -55,6 +55,7 @@ The installer downloads from GitHub Releases, verifies the archive against `chec
 Install Go dependencies:
 
 ```sh
+cd core
 go mod download
 ```
 
@@ -92,33 +93,34 @@ Or run the Go build command directly:
 
 ```sh
 mkdir -p dist
-go build -o dist/trimia ./cmd/trimia
+cd core
+go build -o ../dist/trimia ./cmd/trimia
 ```
 
 ## Run
 
-Run with the default input path, `inputs/test.mov`:
+Run with an input video path:
 
 ```sh
-make run
+./dist/trimia demo.mov
 ```
 
-Run with a custom input:
+Or use the explicit flag:
 
 ```sh
-make run INPUT=inputs/demo.mov
+./dist/trimia --input demo.mov
 ```
 
-Run the built binary directly:
+When using `make run`, pass the input path:
 
 ```sh
-./dist/trimia --input inputs/demo.mov
+make run INPUT=demo.mov
 ```
 
-By default, Trimia writes to `outputs/<input-name>_trimia.mp4`. You can choose an explicit output path:
+By default, Trimia writes next to the input as `<input-name>_trimia.mp4`. You can choose an explicit output path:
 
 ```sh
-./dist/trimia --input inputs/demo.mov --output outputs/demo_trimmed.mp4
+./dist/trimia demo.mov --output demo_trimmed.mp4
 ```
 
 ## CLI Options
@@ -127,8 +129,8 @@ Common options:
 
 ```sh
 ./dist/trimia \
-  --input inputs/demo.mov \
-  --output outputs/demo_trimmed.mp4 \
+  demo.mov \
+  --output demo_trimmed.mp4 \
   --language en \
   --pre-roll 0.03 \
   --post-roll 0.06 \
@@ -137,8 +139,9 @@ Common options:
 
 Available flags:
 
-- `--input`: input video path. Defaults to `inputs/test.mov`.
-- `--output`: output video path. Defaults to `outputs/<input-name>_trimia.mp4`.
+- Positional input: input video path, for example `trimia demo.mov`.
+- `--input`: input video path, as an alternative to the positional argument.
+- `--output`: output video path. Defaults to `<input-name>_trimia.mp4` next to the input.
 - `--overwrite`: overwrite the output file. Defaults to `true`.
 - `--language`: Deepgram language code. Leave empty to use language detection.
 - `--detect-language`: ask Deepgram to detect the spoken language. Defaults to `true`.
@@ -157,7 +160,7 @@ Available flags:
 To write a run log:
 
 ```sh
-./dist/trimia --input inputs/demo.mov --log-dir tmp
+./dist/trimia demo.mov --log-dir tmp
 ```
 
 Trimia prints the generated log path and a `tail -f` command when logging is enabled.
@@ -173,6 +176,7 @@ make test
 Or:
 
 ```sh
+cd core
 go test ./...
 ```
 
