@@ -59,7 +59,7 @@ cd core
 go mod download
 ```
 
-Trimia uses Deepgram for transcription. Create a Deepgram account to get an API key, then save it securely in the OS credential store:
+Trimia uses Deepgram for transcription. Create a Deepgram account to get an API key, then save it:
 
 ```sh
 trimia connect
@@ -67,7 +67,21 @@ trimia connect
 
 You can create a Deepgram account and get your first $200 in credits for free at <https://deepgram.com/>.
 
-Trimia checks the OS credential store during normal interactive use. If no key is saved yet, Trimia prompts for it and saves it.
+Trimia uses the OS secure credential store when available. On Linux this is Secret Service, on macOS this is Keychain, and on Windows this is Credential Manager. If the OS secure store is unavailable, Trimia falls back to a plaintext JSON config file at `~/.trimia/config.json` with directory permissions `0700` and file permissions `0600`. This fallback is useful in WSL, where Secret Service is often not running by default, but it is not encrypted.
+
+Show where Trimia is reading credentials from without printing the key:
+
+```sh
+trimia config
+```
+
+Remove saved credentials from both the OS secure store and the fallback config file:
+
+```sh
+trimia disconnect
+```
+
+Trimia checks saved credentials during normal interactive use. If no key is saved yet, Trimia prompts for it and saves it using the OS secure store first, then the fallback config file only if the secure store is unavailable.
 
 For scripts or CI, you can also provide the key through the `DEEPGRAM_API_KEY` environment variable:
 
