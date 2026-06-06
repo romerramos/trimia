@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 
 	"romerramos/trimia/internal/trimia"
 
@@ -59,6 +58,39 @@ func newRootCommand() *cobra.Command {
 	cmd.Flags().StringVar(&opts.videoPreset, "preset", "veryfast", "x264 preset for rendering; slower presets compress better but take longer")
 	cmd.Flags().IntVar(&opts.videoCRF, "crf", 18, "x264 CRF quality; lower is higher quality")
 	cmd.Flags().StringVar(&opts.audioRate, "audio-rate", "320k", "output audio bitrate")
+	cmd.AddCommand(newConnectCommand())
+
+	return cmd
+}
+
+func newConnectCommand() *cobra.Command {
+	var force bool
+
+	cmd := &cobra.Command{
+		Use:   "connect",
+		Short: "Save your Deepgram API key in the OS credential store",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !force {
+				if _, err := loadDeepgramAPIKey(); err == nil {
+					fmt.Fprintln(cmd.ErrOrStderr(), "A Deepgram API key is already saved. Use --force to replace it.")
+					return nil
+				}
+			}
+
+			key, err := promptDeepgramAPIKey()
+			if err != nil {
+				return err
+			}
+			if err := saveDeepgramAPIKey(key); err != nil {
+				return fmt.Errorf("save Deepgram API key: %w", err)
+			}
+
+			fmt.Fprintln(cmd.OutOrStdout(), "Deepgram API key saved.")
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&force, "force", false, "replace an existing saved Deepgram API key")
 
 	return cmd
 }
@@ -66,6 +98,11 @@ func newRootCommand() *cobra.Command {
 func run(ctx context.Context, opts options) error {
 	if err := godotenv.Load(); err != nil {
 		log.Printf("No .env file loaded: %v", err)
+	}
+
+	apiKey, err := resolveDeepgramAPIKey()
+	if err != nil {
+		return err
 	}
 
 	if opts.outputPath == "" {
@@ -76,7 +113,7 @@ func run(ctx context.Context, opts options) error {
 	result, err := trimia.Process(ctx, trimia.ProcessOptions{
 		InputPath:         opts.inputPath,
 		OutputPath:        opts.outputPath,
-		DeepgramAPIKey:    os.Getenv("DEEPGRAM_API_KEY"),
+		DeepgramAPIKey:    apiKey,
 		RemoveSilence:     true,
 		RemoveFillerWords: true,
 		Language:          opts.language,

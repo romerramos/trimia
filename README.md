@@ -48,16 +48,26 @@ Install Go dependencies:
 go mod download
 ```
 
-Create a `.env` file in the project root:
+Save your Deepgram API key in the OS credential store:
 
 ```sh
-DEEPGRAM_API_KEY=your_deepgram_api_key_here
+trimia connect
 ```
 
-The CLI loads `.env` automatically. You can also provide the key through your shell environment instead:
+You can create a Deepgram account and get your first $200 in credits for free at <https://deepgram.com/>.
+
+Trimia checks `DEEPGRAM_API_KEY` first, then checks the OS credential store. If neither exists during an interactive run, Trimia prompts for the key and saves it.
+
+You can still provide the key through your shell environment:
 
 ```sh
 export DEEPGRAM_API_KEY=your_deepgram_api_key_here
+```
+
+When building from source, you can also create a `.env` file in the project root:
+
+```sh
+DEEPGRAM_API_KEY=your_deepgram_api_key_here
 ```
 
 ## Build
