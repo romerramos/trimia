@@ -1,5 +1,5 @@
 import { redirect } from '@sveltejs/kit';
-import { fetchTrimiaJob, fetchTrimiaSegments, trimiaSourceUrl } from '$lib/server/trimia-api';
+import { fetchTrimiaJob, fetchTrimiaSegments, trimiaApiUrl, trimiaSourceUrl } from '$lib/server/trimia-api';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async (event) => {
@@ -14,6 +14,7 @@ export const load: PageServerLoad = async (event) => {
 		user: event.locals.user,
 		job,
 		segments,
-		sourceUrl: trimiaSourceUrl(job.mediaId)
+		sourceUrl: trimiaSourceUrl(job.mediaId),
+		segmentsUrl: new URL(`/api/jobs/${job.jobId}/segments`, trimiaApiUrl).toString()
 	};
 };
