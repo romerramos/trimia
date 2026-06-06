@@ -44,6 +44,36 @@ func (p pipeline) Run(ctx context.Context, opts ProcessOptions) (*ProcessResult,
 		return nil, err
 	}
 
+	analysis, err := p.Analyze(ctx, processToAnalyzeOptions(opts))
+	if err != nil {
+		return nil, err
+	}
+
+	render, err := p.Render(ctx, processToRenderOptions(opts, analysis.Segments))
+	if err != nil {
+		return nil, err
+	}
+
+	return &ProcessResult{
+		InputPath:             opts.InputPath,
+		OutputPath:            opts.OutputPath,
+		AudioPath:             analysis.AudioPath,
+		OriginalTranscript:    analysis.OriginalTranscript,
+		CleanTranscript:       analysis.CleanTranscript,
+		FillerWords:           analysis.FillerWords,
+		Segments:              analysis.Segments,
+		InputDurationSeconds:  render.InputDurationSeconds,
+		OutputDurationSeconds: render.OutputDurationSeconds,
+		RemovedSeconds:        render.RemovedSeconds,
+		RemovedPercent:        render.RemovedPercent,
+	}, nil
+}
+
+func (p pipeline) Analyze(ctx context.Context, opts AnalyzeOptions) (*AnalysisResult, error) {
+	if err := validateAnalyzeOptions(opts); err != nil {
+		return nil, err
+	}
+
 	logFile, logPath, err := createRunLog(opts.LogDir)
 	if err != nil {
 		return nil, err
@@ -57,13 +87,20 @@ func (p pipeline) Run(ctx context.Context, opts ProcessOptions) (*ProcessResult,
 	}
 	p.Progress = opts.Progress
 
-	opts = applyDefaults(opts)
+	processOpts := applyDefaults(ProcessOptions{
+		InputPath:         opts.InputPath,
+		DeepgramAPIKey:    opts.DeepgramAPIKey,
+		RemoveSilence:     opts.RemoveSilence,
+		RemoveFillerWords: opts.RemoveFillerWords,
+		Language:          opts.Language,
+		DetectLanguage:    opts.DetectLanguage,
+	})
 	preRoll := valueOrDefault(opts.PreRoll, defaultPreRoll)
 	postRoll := valueOrDefault(opts.PostRoll, defaultPostRoll)
 	mergeGap := valueOrDefault(opts.MergeGap, defaultMergeGap)
 
-	p.logf("process: input=%s output=%s", opts.InputPath, opts.OutputPath)
-	p.logf("process: options pre_roll=%.3f post_roll=%.3f merge_gap=%.3f detect_language=%t language=%q keep_temp_files=%t", preRoll, postRoll, mergeGap, opts.DetectLanguage, opts.Language, opts.KeepTempFiles)
+	p.logf("analyze: input=%s", opts.InputPath)
+	p.logf("analyze: options pre_roll=%.3f post_roll=%.3f merge_gap=%.3f detect_language=%t language=%q keep_temp_files=%t", preRoll, postRoll, mergeGap, processOpts.DetectLanguage, processOpts.Language, opts.KeepTempFiles)
 	p.logf("probe input: starting")
 	inputDuration, err := p.mediaProcessor.ProbeDuration(ctx, opts.InputPath)
 	if err != nil {
@@ -101,9 +138,9 @@ func (p pipeline) Run(ctx context.Context, opts ProcessOptions) (*ProcessResult,
 		AudioPath:      audioPath,
 		ContentType:    "audio/mp3",
 		Model:          "nova-3",
-		Language:       opts.Language,
-		DetectLanguage: opts.DetectLanguage,
-		FillerWords:    opts.RemoveFillerWords,
+		Language:       processOpts.Language,
+		DetectLanguage: processOpts.DetectLanguage,
+		FillerWords:    processOpts.RemoveFillerWords,
 		Punctuate:      true,
 		Utterances:     true,
 	})
@@ -120,7 +157,63 @@ func (p pipeline) Run(ctx context.Context, opts ProcessOptions) (*ProcessResult,
 	p.logf("segments: clean=%d filler_words=%d", len(cleanSegments), len(transcription.FillerWords()))
 
 	segments := toSegments(cleanSegments)
-	ffmpegSegments := toFFmpegSegments(segments)
+	estimatedOutputDuration := estimateOutputDuration(segments, preRoll, postRoll, mergeGap)
+	estimatedRemovedSeconds := inputDuration - estimatedOutputDuration
+	estimatedRemovedPercent := 0.0
+	if inputDuration > 0 {
+		estimatedRemovedPercent = estimatedRemovedSeconds / inputDuration * 100
+	}
+	p.logf("analyze: completed estimated_removed=%.2fs estimated_removed_percent=%.1f", estimatedRemovedSeconds, estimatedRemovedPercent)
+
+	resultAudioPath := ""
+	if opts.KeepTempFiles {
+		resultAudioPath = audioPath
+	}
+
+	return &AnalysisResult{
+		InputPath:                      opts.InputPath,
+		AudioPath:                      resultAudioPath,
+		OriginalTranscript:             transcription.Transcript(),
+		CleanTranscript:                transcription.CleanTranscript(),
+		FillerWords:                    transcription.FillerWords(),
+		Segments:                       segments,
+		InputDurationSeconds:           inputDuration,
+		EstimatedOutputDurationSeconds: estimatedOutputDuration,
+		EstimatedRemovedSeconds:        estimatedRemovedSeconds,
+		EstimatedRemovedPercent:        estimatedRemovedPercent,
+	}, nil
+}
+
+func (p pipeline) Render(ctx context.Context, opts RenderOptions) (*RenderResult, error) {
+	if err := validateRenderOptions(opts); err != nil {
+		return nil, err
+	}
+
+	logFile, logPath, err := createRunLog(opts.LogDir)
+	if err != nil {
+		return nil, err
+	}
+	if logFile != nil {
+		defer logFile.Close()
+		p.logWriter = logFile
+		p.logger = log.New(logFile, "", log.LstdFlags)
+		fmt.Printf("Logging to %s\n", logPath)
+		fmt.Printf("Run: tail -f %s\n", logPath)
+	}
+	p.Progress = opts.Progress
+
+	preRoll := valueOrDefault(opts.PreRoll, defaultPreRoll)
+	postRoll := valueOrDefault(opts.PostRoll, defaultPostRoll)
+	mergeGap := valueOrDefault(opts.MergeGap, defaultMergeGap)
+	ffmpegSegments := toFFmpegSegments(opts.Segments)
+
+	p.logf("render: input=%s output=%s segments=%d", opts.InputPath, opts.OutputPath, len(ffmpegSegments))
+	p.logf("probe input: starting")
+	inputDuration, err := p.mediaProcessor.ProbeDuration(ctx, opts.InputPath)
+	if err != nil {
+		return nil, err
+	}
+	p.logf("probe input: completed duration=%.2fs", inputDuration)
 
 	p.logf("cut video: starting segments=%d", len(ffmpegSegments))
 	p.progress("Rendering video", 0)
@@ -156,21 +249,11 @@ func (p pipeline) Run(ctx context.Context, opts ProcessOptions) (*ProcessResult,
 	if inputDuration > 0 {
 		removedPercent = removedSeconds / inputDuration * 100
 	}
-	p.logf("process: completed removed=%.2fs removed_percent=%.1f output=%s", removedSeconds, removedPercent, opts.OutputPath)
+	p.logf("render: completed removed=%.2fs removed_percent=%.1f output=%s", removedSeconds, removedPercent, opts.OutputPath)
 
-	resultAudioPath := ""
-	if opts.KeepTempFiles {
-		resultAudioPath = audioPath
-	}
-
-	return &ProcessResult{
+	return &RenderResult{
 		InputPath:             opts.InputPath,
 		OutputPath:            opts.OutputPath,
-		AudioPath:             resultAudioPath,
-		OriginalTranscript:    transcription.Transcript(),
-		CleanTranscript:       transcription.CleanTranscript(),
-		FillerWords:           transcription.FillerWords(),
-		Segments:              segments,
 		InputDurationSeconds:  inputDuration,
 		OutputDurationSeconds: outputDuration,
 		RemovedSeconds:        removedSeconds,

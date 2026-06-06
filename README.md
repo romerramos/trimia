@@ -137,6 +137,80 @@ By default, Trimia writes next to the input as `<input-name>_trimia.mp4`. You ca
 ./dist/trimia demo.mov --output demo_trimmed.mp4
 ```
 
+## HTTP API
+
+Run the local API server for the future SvelteKit app:
+
+```sh
+./dist/trimia serve --addr 127.0.0.1:3333 --data-dir tmp/api
+```
+
+The API keeps uploaded videos and rendered outputs on the Go server. Clients should use IDs and URLs instead of filesystem paths.
+
+Minimal flow:
+
+1. Upload media with `POST /api/media` using multipart form field `file`.
+2. Start analysis with `POST /api/jobs`.
+3. Poll `GET /api/jobs/{jobId}` until `status` is `awaiting_confirmation`.
+4. Read proposed segments with `GET /api/jobs/{jobId}/segments`.
+5. Save edited segments with `PUT /api/jobs/{jobId}/segments`.
+6. Start rendering with `POST /api/jobs/{jobId}/render`.
+7. Poll `GET /api/jobs/{jobId}/render` until `status` is `completed`.
+8. Download the final video from `GET /api/jobs/{jobId}/download`.
+
+Create an analysis job:
+
+```json
+{
+  "mediaId": "med_abc123",
+  "options": {
+    "removeSilence": true,
+    "removeFillerWords": true,
+    "language": "",
+    "detectLanguage": true,
+    "preRoll": 0.03,
+    "postRoll": 0.06,
+    "mergeGap": 0.12
+  }
+}
+```
+
+Save reviewed segments:
+
+```json
+{
+  "baseVersion": 1,
+  "segments": [
+    {
+      "id": "seg_001",
+      "start": 0.35,
+      "end": 8.95,
+      "text": "Today we're going to look at the first prototype.",
+      "source": "deepgram",
+      "included": true
+    }
+  ]
+}
+```
+
+Start a render:
+
+```json
+{
+  "segmentVersion": 2,
+  "output": {
+    "filename": "demo_trimia.mp4",
+    "overwrite": true
+  },
+  "renderOptions": {
+    "renderMode": "segments",
+    "preset": "veryfast",
+    "crf": 18,
+    "audioRate": "320k"
+  }
+}
+```
+
 ## CLI Options
 
 Common options:

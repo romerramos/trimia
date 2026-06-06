@@ -3,8 +3,10 @@ package cli
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 
+	"romerramos/trimia/internal/api"
 	"romerramos/trimia/internal/trimia"
 
 	"github.com/joho/godotenv"
@@ -71,6 +73,44 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newConnectCommand())
 	cmd.AddCommand(newDisconnectCommand())
 	cmd.AddCommand(newConfigCommand())
+	cmd.AddCommand(newServeCommand())
+
+	return cmd
+}
+
+func newServeCommand() *cobra.Command {
+	var addr string
+	var dataDir string
+
+	cmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Run the Trimia HTTP API server",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if _, err := os.Stat(".env"); err == nil {
+				if err := godotenv.Load(); err != nil {
+					return fmt.Errorf("load .env: %w", err)
+				}
+			} else if !os.IsNotExist(err) {
+				return fmt.Errorf("check .env: %w", err)
+			}
+
+			apiKey, err := resolveDeepgramAPIKey()
+			if err != nil {
+				return err
+			}
+
+			server, err := api.NewServer(api.Options{DeepgramAPIKey: apiKey, DataDir: dataDir})
+			if err != nil {
+				return err
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "Trimia API listening on http://%s\n", addr)
+			return http.ListenAndServe(addr, server.Handler())
+		},
+	}
+
+	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1:3333", "HTTP API listen address")
+	cmd.Flags().StringVar(&dataDir, "data-dir", "", "directory for uploaded and rendered media")
 
 	return cmd
 }

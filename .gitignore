@@ -4,3 +4,4 @@ tmp/*
 !tmp/.keep
 dist/
 test.mov
+test_trimia.mp4

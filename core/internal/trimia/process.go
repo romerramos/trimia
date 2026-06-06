@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"romerramos/trimia/internal/deepgram"
@@ -47,9 +48,77 @@ type ProcessOptions struct {
 type ProgressFunc func(phase string, percent float64)
 
 type Segment struct {
-	Start float64
-	End   float64
-	Text  string
+	ID       string
+	Start    float64
+	End      float64
+	Text     string
+	Included bool
+	Words    []deepgram.Word
+}
+
+type AnalyzeOptions struct {
+	InputPath string
+
+	DeepgramAPIKey string
+
+	RemoveSilence     bool
+	RemoveFillerWords bool
+
+	Language       string
+	DetectLanguage bool
+
+	PreRoll  *float64
+	PostRoll *float64
+	MergeGap *float64
+
+	KeepTempFiles bool
+	LogDir        string
+	Progress      ProgressFunc
+}
+
+type AnalysisResult struct {
+	InputPath string
+	AudioPath string
+
+	OriginalTranscript string
+	CleanTranscript    string
+
+	FillerWords []deepgram.Word
+	Segments    []Segment
+
+	InputDurationSeconds           float64
+	EstimatedOutputDurationSeconds float64
+	EstimatedRemovedSeconds        float64
+	EstimatedRemovedPercent        float64
+}
+
+type RenderOptions struct {
+	InputPath  string
+	OutputPath string
+	Segments   []Segment
+
+	PreRoll  *float64
+	PostRoll *float64
+	MergeGap *float64
+
+	Overwrite bool
+	LogDir    string
+	Progress  ProgressFunc
+
+	RenderMode  string
+	VideoPreset string
+	VideoCRF    int
+	AudioRate   string
+}
+
+type RenderResult struct {
+	InputPath  string
+	OutputPath string
+
+	InputDurationSeconds  float64
+	OutputDurationSeconds float64
+	RemovedSeconds        float64
+	RemovedPercent        float64
 }
 
 type ProcessResult struct {
@@ -73,6 +142,14 @@ func Process(ctx context.Context, opts ProcessOptions) (*ProcessResult, error) {
 	return newPipeline(opts.DeepgramAPIKey).Run(ctx, opts)
 }
 
+func Analyze(ctx context.Context, opts AnalyzeOptions) (*AnalysisResult, error) {
+	return newPipeline(opts.DeepgramAPIKey).Analyze(ctx, opts)
+}
+
+func Render(ctx context.Context, opts RenderOptions) (*RenderResult, error) {
+	return newPipeline("").Render(ctx, opts)
+}
+
 func validateProcessOptions(opts ProcessOptions) error {
 	if opts.InputPath == "" {
 		return errors.New("input path is required")
@@ -91,6 +168,77 @@ func validateProcessOptions(opts ProcessOptions) error {
 	}
 
 	return nil
+}
+
+func validateAnalyzeOptions(opts AnalyzeOptions) error {
+	if opts.InputPath == "" {
+		return errors.New("input path is required")
+	}
+
+	if opts.DeepgramAPIKey == "" {
+		return errors.New("deepgram api key is required")
+	}
+
+	if _, err := os.Stat(opts.InputPath); err != nil {
+		return fmt.Errorf("input file: %w", err)
+	}
+
+	return nil
+}
+
+func validateRenderOptions(opts RenderOptions) error {
+	if opts.InputPath == "" {
+		return errors.New("input path is required")
+	}
+
+	if opts.OutputPath == "" {
+		return errors.New("output path is required")
+	}
+
+	if len(includedSegments(opts.Segments)) == 0 {
+		return errors.New("at least one included segment is required")
+	}
+
+	if _, err := os.Stat(opts.InputPath); err != nil {
+		return fmt.Errorf("input file: %w", err)
+	}
+
+	return nil
+}
+
+func processToAnalyzeOptions(opts ProcessOptions) AnalyzeOptions {
+	return AnalyzeOptions{
+		InputPath:         opts.InputPath,
+		DeepgramAPIKey:    opts.DeepgramAPIKey,
+		RemoveSilence:     opts.RemoveSilence,
+		RemoveFillerWords: opts.RemoveFillerWords,
+		Language:          opts.Language,
+		DetectLanguage:    opts.DetectLanguage,
+		PreRoll:           opts.PreRoll,
+		PostRoll:          opts.PostRoll,
+		MergeGap:          opts.MergeGap,
+		KeepTempFiles:     opts.KeepTempFiles,
+		LogDir:            opts.LogDir,
+		Progress:          opts.Progress,
+	}
+}
+
+func processToRenderOptions(opts ProcessOptions, segments []Segment) RenderOptions {
+	return RenderOptions{
+		InputPath:   opts.InputPath,
+		OutputPath:  opts.OutputPath,
+		Segments:    segments,
+		PreRoll:     opts.PreRoll,
+		PostRoll:    opts.PostRoll,
+		MergeGap:    opts.MergeGap,
+		Overwrite:   opts.Overwrite,
+		LogDir:      opts.LogDir,
+		Progress:    opts.Progress,
+		RenderMode:  opts.RenderMode,
+		VideoPreset: opts.VideoPreset,
+		VideoCRF:    opts.VideoCRF,
+		AudioRate:   opts.AudioRate,
+	}
 }
 
 func applyDefaults(opts ProcessOptions) ProcessOptions {
@@ -134,11 +282,14 @@ func createTempAudioPath() (string, error) {
 
 func toSegments(cleanSegments []deepgram.CleanSegment) []Segment {
 	segments := make([]Segment, 0, len(cleanSegments))
-	for _, segment := range cleanSegments {
+	for i, segment := range cleanSegments {
 		segments = append(segments, Segment{
-			Start: segment.Start,
-			End:   segment.End,
-			Text:  segment.Text,
+			ID:       fmt.Sprintf("seg_%03d", i+1),
+			Start:    segment.Start,
+			End:      segment.End,
+			Text:     segment.Text,
+			Included: true,
+			Words:    segment.Words,
 		})
 	}
 
@@ -146,8 +297,9 @@ func toSegments(cleanSegments []deepgram.CleanSegment) []Segment {
 }
 
 func toFFmpegSegments(segments []Segment) []ffmpeg.Segment {
-	ffmpegSegments := make([]ffmpeg.Segment, 0, len(segments))
-	for _, segment := range segments {
+	included := includedSegments(segments)
+	ffmpegSegments := make([]ffmpeg.Segment, 0, len(included))
+	for _, segment := range included {
 		ffmpegSegments = append(ffmpegSegments, ffmpeg.Segment{
 			Start: segment.Start,
 			End:   segment.End,
@@ -155,6 +307,62 @@ func toFFmpegSegments(segments []Segment) []ffmpeg.Segment {
 	}
 
 	return ffmpegSegments
+}
+
+func includedSegments(segments []Segment) []Segment {
+	included := make([]Segment, 0, len(segments))
+	for _, segment := range segments {
+		if segment.Included {
+			included = append(included, segment)
+		}
+	}
+
+	return included
+}
+
+func estimateOutputDuration(segments []Segment, preRoll, postRoll, mergeGap float64) float64 {
+	ffmpegSegments := toFFmpegSegments(segments)
+	if len(ffmpegSegments) == 0 {
+		return 0
+	}
+
+	prepared := make([]ffmpeg.Segment, 0, len(ffmpegSegments))
+	for _, segment := range ffmpegSegments {
+		start := segment.Start - preRoll
+		if start < 0 {
+			start = 0
+		}
+		prepared = append(prepared, ffmpeg.Segment{Start: start, End: segment.End + postRoll})
+	}
+	sort.Slice(prepared, func(i, j int) bool {
+		return prepared[i].Start < prepared[j].Start
+	})
+
+	// This mirrors ffmpeg segment merging closely enough for UI estimates.
+	merged := make([]ffmpeg.Segment, 0, len(prepared))
+	for _, segment := range prepared {
+		if len(merged) == 0 {
+			merged = append(merged, segment)
+			continue
+		}
+
+		last := &merged[len(merged)-1]
+		if segment.Start <= last.End+mergeGap {
+			if segment.End > last.End {
+				last.End = segment.End
+			}
+			continue
+		}
+
+		merged = append(merged, segment)
+	}
+
+	duration := 0.0
+	for _, segment := range merged {
+		duration += segment.End - segment.Start
+	}
+
+	return duration
 }
 
 func DefaultOutputPath(inputPath string) string {
