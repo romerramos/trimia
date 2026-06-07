@@ -24,7 +24,7 @@
 </script>
 
 <ContextMenu.Root>
-	<ContextMenu.Trigger style={`width: ${width}`} class="h-full min-w-1">
+	<ContextMenu.Trigger style={`width: ${width}; flex: 0 0 ${width}`} class="h-full">
 		<button
 			type="button"
 			class={itemClass(item, savingSegmentId)}

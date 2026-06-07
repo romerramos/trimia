@@ -77,7 +77,7 @@ export function itemWidth(
 	pixelsPerSecond: number
 ) {
 	if (zoom === 'playhead') {
-		return `${Math.max((item.end - item.start) * pixelsPerSecond, 10)}px`;
+		return `${(item.end - item.start) * pixelsPerSecond}px`;
 	}
 
 	if (duration <= 0) {
