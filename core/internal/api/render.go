@@ -78,6 +78,7 @@ func (s *Server) createRender(jobID string, req renderRequest) (*renderRecord, e
 	job.Status = "rendering"
 	job.Phase = "rendering_video"
 	job.UpdatedAt = time.Now().UTC()
+	_ = s.store.saveLocked()
 	return render, nil
 }
 
@@ -141,4 +142,5 @@ func (s *Server) runRender(ctx context.Context, jobID string, req renderRequest)
 		RemovedPercent:        result.RemovedPercent,
 		path:                  outputPath,
 	}
+	_ = s.store.saveLocked()
 }

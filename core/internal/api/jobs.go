@@ -53,6 +53,7 @@ func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
 
 	s.store.mu.Lock()
 	s.store.jobs[id] = job
+	_ = s.store.saveLocked()
 	s.store.mu.Unlock()
 
 	go s.runAnalysis(context.Background(), id)
@@ -130,6 +131,7 @@ func (s *Server) runAnalysis(ctx context.Context, jobID string) {
 	job.Segments = segments
 	job.Version = 1
 	job.UpdatedAt = time.Now().UTC()
+	_ = s.store.saveLocked()
 }
 
 func (s *Server) jobAnalyzeOptions(jobID string, progress trimia.ProgressFunc) trimia.AnalyzeOptions {
@@ -137,6 +139,7 @@ func (s *Server) jobAnalyzeOptions(jobID string, progress trimia.ProgressFunc) t
 	defer s.store.mu.RUnlock()
 	job := s.store.jobs[jobID]
 	opts := job.Options
+	opts.DeepgramAPIKey = s.apiKey
 	if media := s.store.media[job.MediaID]; media != nil && media.AudioStatus == "audio_ready" {
 		opts.AudioPath = media.AudioPath
 	}

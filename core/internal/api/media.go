@@ -103,6 +103,7 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 
 	s.store.mu.Lock()
 	s.store.media[id] = record
+	_ = s.store.saveLocked()
 	s.store.mu.Unlock()
 	s.logger.UploadSaved(record)
 

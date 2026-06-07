@@ -55,6 +55,7 @@ func (s *Server) updateSegments(w http.ResponseWriter, jobID string, req updateS
 	job.Segments = req.Segments
 	job.Version++
 	job.UpdatedAt = time.Now().UTC()
+	_ = s.store.saveLocked()
 
 	inputDuration := job.Analysis.InputDurationSeconds
 	estimatedOutput := estimateSegmentDuration(req.Segments, job.Options.PreRoll, job.Options.PostRoll, job.Options.MergeGap)

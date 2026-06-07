@@ -50,9 +50,14 @@ func NewServer(opts Options) (*Server, error) {
 		maxUploadBytes = defaultMaxUploadBytes
 	}
 
+	store, err := newStore(dataDir)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Server{
 		apiKey:            opts.DeepgramAPIKey,
-		store:             newStore(dataDir),
+		store:             store,
 		uploadTokenSecret: opts.UploadTokenSecret,
 		allowedOrigin:     opts.AllowedOrigin,
 		maxUploadBytes:    maxUploadBytes,

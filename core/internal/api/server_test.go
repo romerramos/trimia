@@ -291,3 +291,64 @@ func TestMediaWaveformEndpointReturnsConflictWhenNotReady(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)
 	}
 }
+
+func TestStorePersistsMediaAndJobsAcrossServerRestart(t *testing.T) {
+	dataDir := t.TempDir()
+	server, err := NewServer(Options{DeepgramAPIKey: "test-key", DataDir: dataDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mediaPath := filepath.Join(server.UploadsDir(), "med_test.mp4")
+	if err := os.WriteFile(mediaPath, []byte("video bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server.store.mu.Lock()
+	server.store.media["med_test"] = &mediaRecord{
+		ID:              "med_test",
+		Filename:        "source.mp4",
+		ContentType:     "video/mp4",
+		DurationSeconds: 12,
+		Status:          "ready",
+		PreviewStatus:   "skipped",
+		PreviewProgress: 100,
+		AudioStatus:     "audio_ready",
+		WaveformStatus:  "waveform_ready",
+		Path:            mediaPath,
+		AudioPath:       filepath.Join(server.AudioDir(), "med_test.mp3"),
+		PreviewPath:     filepath.Join(server.PreviewsDir(), "med_test.mp4"),
+		WaveformPath:    filepath.Join(server.WaveformsDir(), "med_test.json"),
+		CreatedAt:       time.Now().UTC(),
+	}
+	server.store.jobs["job_test"] = &jobRecord{
+		ID:        "job_test",
+		MediaID:   "med_test",
+		Status:    "awaiting_confirmation",
+		Phase:     "analysis_complete",
+		Progress:  100,
+		Version:   1,
+		Segments:  []segmentResponse{{ID: "seg_test", Start: 0, End: 1, Included: true}},
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	if err := server.store.saveLocked(); err != nil {
+		server.store.mu.Unlock()
+		t.Fatal(err)
+	}
+	server.store.mu.Unlock()
+
+	restarted, err := NewServer(Options{DeepgramAPIKey: "test-key", DataDir: dataDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := restarted.lookupMedia("med_test"); !ok {
+		t.Fatal("media was not restored")
+	}
+	job, ok := restarted.lookupJob("job_test")
+	if !ok {
+		t.Fatal("job was not restored")
+	}
+	if job.Version != 1 || len(job.Segments) != 1 {
+		t.Fatalf("restored job = %#v", job)
+	}
+}
