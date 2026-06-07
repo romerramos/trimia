@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
+	import { Pause, Play, Square } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import * as ContextMenu from '$lib/components/ui/context-menu/index.js';
@@ -23,6 +24,8 @@
 	let segmentSaveError = $state('');
 	let savingSegmentId = $state('');
 	let editedSegmentIds = $state<string[]>([]);
+	let transcribeElapsedSeconds = $state(0);
+	let transcriptScrollElement = $state<HTMLDivElement>();
 
 	const previewPreRoll = 0.03;
 	const previewPostRoll = 0.06;
@@ -30,10 +33,22 @@
 	const zoomPixelsPerSecond = 48;
 
 	const segments = $derived(localSegments);
-	const transcript = $derived(data.job.analysis?.cleanTranscript || data.job.analysis?.originalTranscript || 'Transcript will appear when analysis completes.');
-	const duration = $derived(data.job.analysis?.inputDurationSeconds ?? Math.max(...segments.map((segment) => segment.end), 0));
-	const ready = $derived(data.job.status === 'awaiting_confirmation' || data.job.status === 'completed' || data.job.status === 'rendering');
+	const transcript = $derived(
+		data.job.analysis?.cleanTranscript ||
+			data.job.analysis?.originalTranscript ||
+			'Transcript will appear when analysis completes.'
+	);
+	const duration = $derived(
+		data.job.analysis?.inputDurationSeconds ??
+			Math.max(...segments.map((segment) => segment.end), 0)
+	);
+	const ready = $derived(
+		data.job.status === 'awaiting_confirmation' ||
+			data.job.status === 'completed' ||
+			data.job.status === 'rendering'
+	);
 	const processing = $derived(data.job.status === 'queued' || data.job.status === 'running');
+	const indeterminate = $derived(processing && data.job.progress < 0);
 	type TimelineItem = {
 		id: string;
 		start: number;
@@ -122,10 +137,18 @@
 
 		return merged;
 	});
-	const previewDuration = $derived(previewSegments.reduce((total, segment) => total + segment.end - segment.start, 0));
-	const playheadPercent = $derived(duration > 0 ? Math.min(Math.max((currentSourceTime / duration) * 100, 0), 100) : 0);
-	const playheadLeft = $derived(timelineZoom === 'fit' ? `${playheadPercent}%` : `${currentSourceTime * zoomPixelsPerSecond}px`);
-	const timelineContentWidth = $derived(timelineZoom === 'fit' ? '100%' : `${Math.max(duration * zoomPixelsPerSecond, 960)}px`);
+	const previewDuration = $derived(
+		previewSegments.reduce((total, segment) => total + segment.end - segment.start, 0)
+	);
+	const playheadPercent = $derived(
+		duration > 0 ? Math.min(Math.max((currentSourceTime / duration) * 100, 0), 100) : 0
+	);
+	const playheadLeft = $derived(
+		timelineZoom === 'fit' ? `${playheadPercent}%` : `${currentSourceTime * zoomPixelsPerSecond}px`
+	);
+	const timelineContentWidth = $derived(
+		timelineZoom === 'fit' ? '100%' : `${Math.max(duration * zoomPixelsPerSecond, 960)}px`
+	);
 	const currentPreviewTime = $derived(previewTimeFromSourceTime(currentSourceTime));
 	const transcriptWords = $derived.by(() => {
 		return segments.flatMap((segment) => {
@@ -138,7 +161,10 @@
 			})) satisfies TranscriptWord[];
 		});
 	});
-	const activeWordId = $derived(transcriptWords.find((word) => currentSourceTime >= word.start && currentSourceTime < word.end)?.id ?? '');
+	const activeWordId = $derived(
+		transcriptWords.find((word) => currentSourceTime >= word.start && currentSourceTime < word.end)
+			?.id ?? ''
+	);
 
 	$effect.pre(() => {
 		const version = data.segments?.version ?? 0;
@@ -161,6 +187,35 @@
 		return () => {
 			window.clearInterval(interval);
 		};
+	});
+
+	$effect(() => {
+		if (!indeterminate) {
+			transcribeElapsedSeconds = 0;
+			return;
+		}
+
+		const startedAt = Date.now();
+		transcribeElapsedSeconds = 0;
+
+		const interval = window.setInterval(() => {
+			transcribeElapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+		}, 1000);
+
+		return () => {
+			window.clearInterval(interval);
+		};
+	});
+
+	$effect(() => {
+		if (!activeWordId || !transcriptScrollElement) {
+			return;
+		}
+
+		const element = transcriptScrollElement.querySelector<HTMLElement>(
+			`[data-word-id="${activeWordId}"]`
+		);
+		element?.scrollIntoView({ block: 'center', behavior: 'smooth' });
 	});
 
 	$effect(() => {
@@ -187,7 +242,11 @@
 		currentSourceTime = time;
 	};
 
-	const saveSegments = async (nextSegments: TrimiaSegment[], savingId = '', markEditedId = savingId) => {
+	const saveSegments = async (
+		nextSegments: TrimiaSegment[],
+		savingId = '',
+		markEditedId = savingId
+	) => {
 		const previousSegments = localSegments;
 		const previousVersion = segmentVersion;
 		const previousEditedSegmentIds = editedSegmentIds;
@@ -227,7 +286,9 @@
 
 	const toggleSegmentIncluded = async (segmentId: string, included: boolean) => {
 		await saveSegments(
-			localSegments.map((segment) => (segment.id === segmentId ? { ...segment, included } : segment)),
+			localSegments.map((segment) =>
+				segment.id === segmentId ? { ...segment, included } : segment
+			),
 			segmentId
 		);
 	};
@@ -248,7 +309,10 @@
 			words: []
 		};
 
-		await saveSegments([...localSegments, manualSegment].toSorted((a, b) => a.start - b.start), segmentId);
+		await saveSegments(
+			[...localSegments, manualSegment].toSorted((a, b) => a.start - b.start),
+			segmentId
+		);
 	};
 
 	const contextMenuLabel = (item: TimelineItem) => {
@@ -261,7 +325,9 @@
 
 	const timelineItemClass = (item: TimelineItem) => {
 		return [
-			item.included ? 'bg-foreground hover:bg-foreground/90' : 'bg-destructive/25 hover:bg-destructive/35',
+			item.included
+				? 'bg-foreground hover:bg-foreground/90'
+				: 'bg-destructive/25 hover:bg-destructive/35',
 			item.edited ? 'opacity-65 ring-1 ring-inset ring-primary/50' : '',
 			savingSegmentId === item.segmentId ? 'opacity-50' : '',
 			'h-full w-full transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none'
@@ -345,7 +411,9 @@
 	};
 
 	const findPreviewIndex = (time: number) => {
-		const containing = previewSegments.findIndex((segment) => time >= segment.start && time < segment.end);
+		const containing = previewSegments.findIndex(
+			(segment) => time >= segment.start && time < segment.end
+		);
 		if (containing !== -1) {
 			return containing;
 		}
@@ -374,7 +442,10 @@
 		const rect = timelineElement.getBoundingClientRect();
 		const percent = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1);
 		const rawTime = percent * duration;
-		const resolvedTime = resolveAcceptedDragTime(rawTime, rawTime >= lastDragSourceTime ? 'forward' : 'backward');
+		const resolvedTime = resolveAcceptedDragTime(
+			rawTime,
+			rawTime >= lastDragSourceTime ? 'forward' : 'backward'
+		);
 
 		player.currentTime = resolvedTime;
 		currentSourceTime = resolvedTime;
@@ -392,7 +463,9 @@
 	};
 
 	const resolveAcceptedDragTime = (time: number, direction: 'forward' | 'backward') => {
-		const containing = previewSegments.find((segment) => time >= segment.start && time <= segment.end);
+		const containing = previewSegments.find(
+			(segment) => time >= segment.start && time <= segment.end
+		);
 		if (containing) {
 			return time;
 		}
@@ -449,26 +522,31 @@
 		const targetLeft = time * zoomPixelsPerSecond - timelineScrollElement.clientWidth / 2;
 		timelineScrollElement.scrollLeft = Math.max(0, targetLeft);
 	};
-
 </script>
 
 <svelte:head>
 	<title>Studio | Trimia</title>
 </svelte:head>
 
-<main class="bg-background h-dvh overflow-hidden px-4 py-3 sm:px-6 lg:px-8">
+<main class="h-dvh overflow-hidden bg-background px-4 py-3 sm:px-6 lg:px-8">
 	<section class="mx-auto flex h-full w-full max-w-7xl flex-col gap-3">
 		<header class="flex items-center justify-between gap-4">
 			<div>
 				<h1 class="text-2xl font-semibold tracking-tight">Trimia Studio</h1>
-				<p class="text-muted-foreground text-xs">Job {data.job.jobId}</p>
+				<p class="text-xs text-muted-foreground">Job {data.job.jobId}</p>
 			</div>
 
 			{#if processing}
-				<div class="text-muted-foreground flex items-center gap-2 text-sm">
-					<span class="bg-primary h-2 w-2 animate-pulse rounded-full"></span>
+				<div class="flex items-center gap-2 text-sm text-muted-foreground">
+					<span class="h-2 w-2 animate-pulse rounded-full bg-primary"></span>
 					<span class="capitalize">{data.job.phase.replaceAll('_', ' ')}</span>
-					<span>{Math.round(data.job.progress)}%</span>
+					{#if indeterminate}
+						<span class="font-mono tabular-nums"
+							>Working… {formatTime(transcribeElapsedSeconds)}</span
+						>
+					{:else}
+						<span>{Math.round(data.job.progress)}%</span>
+					{/if}
 				</div>
 			{/if}
 		</header>
@@ -479,11 +557,31 @@
 					<div class="space-y-3">
 						<div class="flex justify-between gap-4 text-sm">
 							<span class="font-medium capitalize">{data.job.phase.replaceAll('_', ' ')}</span>
-							<span class="text-muted-foreground">{Math.round(data.job.progress)}%</span>
+							{#if indeterminate}
+								<span class="font-mono text-muted-foreground tabular-nums"
+									>Working… {formatTime(transcribeElapsedSeconds)}</span
+								>
+							{:else}
+								<span class="text-muted-foreground">{Math.round(data.job.progress)}%</span>
+							{/if}
 						</div>
-						<div class="bg-muted h-2 overflow-hidden rounded-full">
-							<div class="bg-primary h-full rounded-full transition-all duration-500" style={`width: ${Math.max(data.job.progress, 4)}%`}></div>
+						<div class="h-2 overflow-hidden rounded-full bg-muted">
+							{#if indeterminate}
+								<div
+									class="h-full animate-[transcribe-shimmer_1.4s_linear_infinite] rounded-full bg-gradient-to-r from-muted via-primary to-muted bg-[length:200%_100%]"
+								></div>
+							{:else}
+								<div
+									class="h-full rounded-full bg-primary transition-all duration-500"
+									style={`width: ${Math.max(data.job.progress, 4)}%`}
+								></div>
+							{/if}
 						</div>
+						{#if indeterminate}
+							<p class="text-xs text-muted-foreground">
+								Transcribing audio with Deepgram… this may take a while.
+							</p>
+						{/if}
 					</div>
 				</Card.Content>
 			</Card.Root>
@@ -499,41 +597,56 @@
 		{/if}
 
 		{#if segmentSaveError}
-			<Card.Root class="border-destructive/40 bg-destructive/5 shrink-0">
+			<Card.Root class="shrink-0 border-destructive/40 bg-destructive/5">
 				<Card.Content class="py-3 text-sm text-destructive">{segmentSaveError}</Card.Content>
 			</Card.Root>
 		{/if}
 
 		<div class="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1.7fr)_minmax(21rem,0.85fr)]">
 			<div class="flex min-h-0 items-stretch">
-				<div class="flex h-full max-h-full w-full flex-col overflow-hidden rounded-xl bg-black shadow-sm">
-					<video bind:this={player} class="min-h-0 flex-1 bg-black object-contain" src={data.sourceUrl} preload="metadata" ontimeupdate={() => (currentSourceTime = player?.currentTime ?? 0)} onended={stopPreview}>
+				<div
+					class="flex h-full max-h-full w-full flex-col overflow-hidden rounded-xl bg-black shadow-sm"
+				>
+					<video
+						bind:this={player}
+						class="min-h-0 flex-1 bg-black object-contain"
+						src={data.sourceUrl}
+						preload="metadata"
+						ontimeupdate={() => (currentSourceTime = player?.currentTime ?? 0)}
+						onended={stopPreview}
+					>
 						<track kind="captions" />
 					</video>
 
-					<div class="flex shrink-0 items-center justify-between gap-4 border-t border-white/10 bg-zinc-950 px-4 py-3 text-white">
+					<div
+						class="flex shrink-0 items-center justify-between gap-4 border-t border-white/10 bg-zinc-950 px-4 py-3 text-white"
+					>
 						<div class="flex items-center gap-2">
 							<button
 								type="button"
-								class="flex h-10 w-10 items-center justify-center rounded-full bg-white text-sm font-semibold text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-40"
+								class="flex h-10 w-10 items-center justify-center rounded-full bg-white text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-40"
 								disabled={!ready || previewSegments.length === 0}
 								onclick={togglePreview}
 								aria-label={playingPreview ? 'Pause preview' : 'Play preview'}
 							>
-								{playingPreview ? 'Ⅱ' : '▶'}
+								{#if playingPreview}
+									<Pause class="h-5 w-5" />
+								{:else}
+									<Play class="h-5 w-5" />
+								{/if}
 							</button>
 							<button
 								type="button"
-								class="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 text-sm font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+								class="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
 								disabled={!ready || previewSegments.length === 0}
 								onclick={stopPreview}
 								aria-label="Stop preview"
 							>
-								■
+								<Square class="h-4 w-4" />
 							</button>
 						</div>
 
-						<div class="font-mono text-sm tabular-nums text-zinc-300">
+						<div class="font-mono text-sm text-zinc-300 tabular-nums">
 							{formatTime(currentPreviewTime)} / {formatTime(previewDuration)}
 						</div>
 					</div>
@@ -546,12 +659,18 @@
 				</Card.Header>
 				<Card.Content class="min-h-0 pb-4">
 					{#if transcriptWords.length > 0}
-						<div class="max-h-[calc(100dvh-16rem)] overflow-y-auto pr-1 text-sm leading-8">
+						<div
+							bind:this={transcriptScrollElement}
+							class="max-h-[calc(100dvh-16rem)] overflow-y-auto pr-1 text-sm leading-8"
+						>
 							{#each transcriptWords as word (word.id)}
 								<button
 									type="button"
+									data-word-id={word.id}
 									class={[
-										word.id === activeWordId ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+										word.id === activeWordId
+											? 'bg-primary text-primary-foreground'
+											: 'text-muted-foreground hover:bg-muted hover:text-foreground',
 										'inline rounded px-1 py-0.5 text-left transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none'
 									].join(' ')}
 									onclick={() => seekToSourceTime(word.start)}
@@ -562,7 +681,11 @@
 							{/each}
 						</div>
 					{:else}
-						<p class="text-muted-foreground max-h-[36rem] overflow-y-auto text-sm leading-7 whitespace-pre-wrap">{transcript}</p>
+						<p
+							class="max-h-[36rem] overflow-y-auto text-sm leading-7 whitespace-pre-wrap text-muted-foreground"
+						>
+							{transcript}
+						</p>
 					{/if}
 				</Card.Content>
 			</Card.Root>
@@ -573,22 +696,32 @@
 				<Card.Title>Timeline</Card.Title>
 				{#if timelineItems.length > 0}
 					<div class="flex flex-wrap items-center gap-3 text-sm">
-						<div class="text-muted-foreground flex flex-wrap gap-3">
+						<div class="flex flex-wrap gap-3 text-muted-foreground">
 							<span>{acceptedCount} accepted</span>
 							<span>{removedCount} removed gaps</span>
 							<span>{formatTime(duration)} source</span>
 						</div>
-						<div class="bg-muted flex rounded-lg p-1">
+						<div class="flex rounded-lg bg-muted p-1">
 							<button
 								type="button"
-								class={[timelineZoom === 'fit' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground', 'rounded-md px-2 py-1 text-xs font-medium transition'].join(' ')}
+								class={[
+									timelineZoom === 'fit'
+										? 'bg-background text-foreground shadow-sm'
+										: 'text-muted-foreground hover:text-foreground',
+									'rounded-md px-2 py-1 text-xs font-medium transition'
+								].join(' ')}
 								onclick={() => (timelineZoom = 'fit')}
 							>
 								Full width
 							</button>
 							<button
 								type="button"
-								class={[timelineZoom === 'playhead' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground', 'rounded-md px-2 py-1 text-xs font-medium transition'].join(' ')}
+								class={[
+									timelineZoom === 'playhead'
+										? 'bg-background text-foreground shadow-sm'
+										: 'text-muted-foreground hover:text-foreground',
+									'rounded-md px-2 py-1 text-xs font-medium transition'
+								].join(' ')}
 								onclick={() => {
 									timelineZoom = 'playhead';
 									setTimeout(() => centerTimelineOnTime(currentSourceTime));
@@ -603,51 +736,71 @@
 			<Card.Content class="space-y-2 pb-4">
 				{#if timelineItems.length > 0}
 					<div class="space-y-2">
-						<div bind:this={timelineScrollElement} class={[timelineZoom === 'playhead' ? 'overflow-x-auto pb-1' : 'overflow-x-hidden', 'w-full'].join(' ')}>
-						<div bind:this={timelineElement} class="relative pt-3" style={`width: ${timelineContentWidth}`}>
-							<div class="absolute top-0 bottom-0 z-10 -translate-x-1/2" style={`left: ${playheadLeft}`}>
-								<button
-									type="button"
-									class="mx-auto block h-0 w-0 cursor-ew-resize border-x-[8px] border-t-[12px] border-x-transparent border-t-red-500 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-									onpointerdown={startPlayheadDrag}
-									onpointermove={dragPlayhead}
-									onpointerup={endPlayheadDrag}
-									onpointercancel={endPlayheadDrag}
-									aria-label="Drag preview playhead"
-								></button>
-								<div class="pointer-events-none mx-auto h-[4rem] w-0.5 bg-red-500 shadow-[0_0_0_1px_rgba(255,255,255,0.55)]"></div>
-							</div>
-							<div class="flex h-16 overflow-hidden rounded-md">
-								{#each timelineItems as item, index (item.id)}
-									<ContextMenu.Root>
-										<ContextMenu.Trigger style={`width: ${itemWidth(item.start, item.end)}`} class="h-full min-w-1">
-											<button
-												type="button"
-												class={timelineItemClass(item)}
-												title={`${item.included ? 'Accepted' : 'Removed'} ${formatTime(item.start)} to ${formatTime(item.end)}`}
-												onclick={() => seekToSegment(item.start)}
-												aria-label={`Jump to ${item.included ? 'accepted segment' : 'removed time'} ${index + 1} at ${formatTime(item.start)}`}
-											></button>
-										</ContextMenu.Trigger>
-										<ContextMenu.Content class="z-50 min-w-44 rounded-lg border bg-popover p-1 text-popover-foreground shadow-md">
-											<ContextMenu.Item
-												class="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
-												disabled={!!item.segmentId && savingSegmentId === item.segmentId}
-												onSelect={() => {
-													if (item.kind === 'gap') {
-														void addGapToCut(item);
-													} else if (item.segmentId) {
-														void toggleSegmentIncluded(item.segmentId, !item.included);
-													}
-												}}
+						<div
+							bind:this={timelineScrollElement}
+							class={[
+								timelineZoom === 'playhead' ? 'overflow-x-auto pb-1' : 'overflow-x-hidden',
+								'w-full'
+							].join(' ')}
+						>
+							<div
+								bind:this={timelineElement}
+								class="relative pt-3"
+								style={`width: ${timelineContentWidth}`}
+							>
+								<div
+									class="absolute top-0 bottom-0 z-10 -translate-x-1/2"
+									style={`left: ${playheadLeft}`}
+								>
+									<button
+										type="button"
+										class="mx-auto block h-0 w-0 cursor-ew-resize border-x-[8px] border-t-[12px] border-x-transparent border-t-red-500 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+										onpointerdown={startPlayheadDrag}
+										onpointermove={dragPlayhead}
+										onpointerup={endPlayheadDrag}
+										onpointercancel={endPlayheadDrag}
+										aria-label="Drag preview playhead"
+									></button>
+									<div
+										class="pointer-events-none mx-auto h-[4rem] w-0.5 bg-red-500 shadow-[0_0_0_1px_rgba(255,255,255,0.55)]"
+									></div>
+								</div>
+								<div class="flex h-16 overflow-hidden rounded-md">
+									{#each timelineItems as item, index (item.id)}
+										<ContextMenu.Root>
+											<ContextMenu.Trigger
+												style={`width: ${itemWidth(item.start, item.end)}`}
+												class="h-full min-w-1"
 											>
-												{contextMenuLabel(item)}
-											</ContextMenu.Item>
-										</ContextMenu.Content>
-									</ContextMenu.Root>
-								{/each}
+												<button
+													type="button"
+													class={timelineItemClass(item)}
+													title={`${item.included ? 'Accepted' : 'Removed'} ${formatTime(item.start)} to ${formatTime(item.end)}`}
+													onclick={() => seekToSegment(item.start)}
+													aria-label={`Jump to ${item.included ? 'accepted segment' : 'removed time'} ${index + 1} at ${formatTime(item.start)}`}
+												></button>
+											</ContextMenu.Trigger>
+											<ContextMenu.Content
+												class="z-50 min-w-44 rounded-lg border bg-popover p-1 text-popover-foreground shadow-md"
+											>
+												<ContextMenu.Item
+													class="relative flex cursor-default items-center rounded-sm px-2 py-1.5 text-sm transition-colors outline-none select-none hover:bg-accent hover:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+													disabled={!!item.segmentId && savingSegmentId === item.segmentId}
+													onSelect={() => {
+														if (item.kind === 'gap') {
+															void addGapToCut(item);
+														} else if (item.segmentId) {
+															void toggleSegmentIncluded(item.segmentId, !item.included);
+														}
+													}}
+												>
+													{contextMenuLabel(item)}
+												</ContextMenu.Item>
+											</ContextMenu.Content>
+										</ContextMenu.Root>
+									{/each}
+								</div>
 							</div>
-						</div>
 						</div>
 						<div class="flex justify-between text-xs text-muted-foreground">
 							<span>0:00</span>
@@ -655,9 +808,11 @@
 						</div>
 					</div>
 				{:else}
-					<div class="bg-muted/60 rounded-xl border border-dashed p-8 text-center">
+					<div class="rounded-xl border border-dashed bg-muted/60 p-8 text-center">
 						<p class="font-medium">Timeline is waiting for analysis.</p>
-						<p class="text-muted-foreground mt-2 text-sm">Trimia will add segments here as soon as the transcript analysis completes.</p>
+						<p class="mt-2 text-sm text-muted-foreground">
+							Trimia will add segments here as soon as the transcript analysis completes.
+						</p>
 						<Button class="mt-4" variant="outline" onclick={() => invalidateAll()}>Refresh</Button>
 					</div>
 				{/if}
@@ -665,3 +820,14 @@
 		</Card.Root>
 	</section>
 </main>
+
+<style>
+	@keyframes transcribe-shimmer {
+		0% {
+			background-position: 100% 0;
+		}
+		100% {
+			background-position: -100% 0;
+		}
+	}
+</style>
