@@ -1,15 +1,15 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
-	"time"
-
 	"romerramos/trimia/pkg/ffmpeg"
+	"time"
 )
 
 func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
@@ -69,14 +69,28 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	previewPath := filepath.Join(s.store.dataDir, "previews", id+".mp4")
+	createProxy := shouldCreatePreviewProxy(r)
+	status := "ready"
+	previewStatus := "skipped"
+	previewProgress := 100.0
+	if createProxy {
+		status = "proxying"
+		previewStatus = "proxying"
+		previewProgress = 0
+	}
+
 	record := &mediaRecord{
 		ID:              id,
 		Filename:        filename,
 		ContentType:     header.Header.Get("Content-Type"),
 		SizeBytes:       size,
 		DurationSeconds: duration,
-		Status:          "ready",
+		Status:          status,
+		PreviewStatus:   previewStatus,
+		PreviewProgress: previewProgress,
 		Path:            path,
+		PreviewPath:     previewPath,
 		CreatedAt:       time.Now().UTC(),
 	}
 
@@ -85,12 +99,20 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 	s.store.mu.Unlock()
 	s.logger.UploadSaved(record)
 
+	if createProxy {
+		go s.runPreviewProxy(context.Background(), id)
+	}
 	writeJSON(w, http.StatusCreated, record)
 }
 
-func (s *Server) handleMediaSource(w http.ResponseWriter, r *http.Request) {
+func shouldCreatePreviewProxy(r *http.Request) bool {
+	value := r.URL.Query().Get("proxy")
+	return value == "1" || value == "true"
+}
+
+func (s *Server) handleMediaItem(w http.ResponseWriter, r *http.Request) {
 	mediaID, action := splitMediaPath(r.URL.Path)
-	if mediaID == "" || action != "source" {
+	if mediaID == "" || action != "" {
 		writeError(w, http.StatusNotFound, "endpoint not found", nil)
 		return
 	}
@@ -105,10 +127,62 @@ func (s *Server) handleMediaSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if media.ContentType != "" {
-		w.Header().Set("Content-Type", media.ContentType)
+	writeJSON(w, http.StatusOK, media)
+}
+
+func (s *Server) runPreviewProxy(ctx context.Context, mediaID string) {
+	media, ok := s.lookupMedia(mediaID)
+	if !ok {
+		return
 	}
-	http.ServeFile(w, r, media.Path)
+
+	err := ffmpeg.CreatePreviewProxy(ctx, ffmpeg.PreviewProxyOptions{
+		InputPath:  media.Path,
+		OutputPath: media.PreviewPath,
+		Overwrite:  true,
+		Duration:   media.DurationSeconds,
+		Progress: func(percent float64) {
+			s.updateMediaPreviewProgress(mediaID, "proxying", percent, "")
+		},
+	})
+	if err != nil {
+		s.updateMediaPreviewProgress(mediaID, "preview_failed", 100, err.Error())
+		return
+	}
+
+	s.updateMediaPreviewProgress(mediaID, "preview_ready", 100, "")
+}
+
+func (s *Server) handleMediaSource(w http.ResponseWriter, r *http.Request) {
+	mediaID, action := splitMediaPath(r.URL.Path)
+	if mediaID == "" || (action != "source" && action != "preview") {
+		writeError(w, http.StatusNotFound, "endpoint not found", nil)
+		return
+	}
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w)
+		return
+	}
+
+	media, ok := s.lookupMedia(mediaID)
+	if !ok {
+		writeError(w, http.StatusNotFound, "media not found", nil)
+		return
+	}
+
+	path := media.Path
+	contentType := media.ContentType
+	if action == "preview" && media.PreviewPath != "" {
+		if _, err := os.Stat(media.PreviewPath); err == nil {
+			path = media.PreviewPath
+			contentType = "video/mp4"
+		}
+	}
+
+	if contentType != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
+	http.ServeFile(w, r, path)
 }
 
 func nextFilePart(reader *multipart.Reader) (*multipart.Part, *multipart.FileHeader, error) {

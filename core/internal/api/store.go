@@ -14,7 +14,11 @@ type mediaRecord struct {
 	SizeBytes       int64     `json:"sizeBytes"`
 	DurationSeconds float64   `json:"durationSeconds"`
 	Status          string    `json:"status"`
+	PreviewStatus   string    `json:"previewStatus"`
+	PreviewProgress float64   `json:"previewProgress"`
+	PreviewError    string    `json:"previewError,omitempty"`
 	Path            string    `json:"-"`
+	PreviewPath     string    `json:"-"`
 	CreatedAt       time.Time `json:"createdAt"`
 }
 
@@ -63,7 +67,24 @@ func (s *Server) lookupMedia(id string) (*mediaRecord, bool) {
 	s.store.mu.RLock()
 	defer s.store.mu.RUnlock()
 	media, ok := s.store.media[id]
-	return media, ok
+	if !ok {
+		return nil, false
+	}
+	copy := *media
+	return &copy, true
+}
+
+func (s *Server) updateMediaPreviewProgress(id, status string, progress float64, errorMessage string) {
+	s.store.mu.Lock()
+	defer s.store.mu.Unlock()
+	media := s.store.media[id]
+	if media == nil {
+		return
+	}
+	media.PreviewStatus = status
+	media.PreviewProgress = progress
+	media.PreviewError = errorMessage
+	media.Status = status
 }
 
 func (s *Server) lookupJob(id string) (*jobRecord, bool) {

@@ -15,7 +15,7 @@ export const load: PageServerLoad = async (event) => {
 		user: event.locals.user,
 		job,
 		segments,
-		sourceUrl: core.sourceUrl(job.mediaId)
+		sourceUrl: core.previewUrl(job.mediaId)
 	};
 };
 

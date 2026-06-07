@@ -112,3 +112,130 @@ func TestMediaSourceEndpoint(t *testing.T) {
 		t.Fatalf("body = %q", rec.Body.String())
 	}
 }
+
+func TestMediaItemEndpointReturnsPreviewStatus(t *testing.T) {
+	dataDir := t.TempDir()
+	server, err := NewServer(Options{DeepgramAPIKey: "test-key", DataDir: dataDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(server.UploadsDir(), "med_test.mp4")
+	if err := os.WriteFile(path, []byte("video bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server.store.media["med_test"] = &mediaRecord{
+		ID:              "med_test",
+		Filename:        "source.mp4",
+		ContentType:     "video/mp4",
+		Path:            path,
+		Status:          "proxying",
+		PreviewStatus:   "proxying",
+		PreviewProgress: 42.5,
+		CreatedAt:       time.Now().UTC(),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/media/med_test", nil)
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"previewStatus":"proxying"`) || !strings.Contains(body, `"previewProgress":42.5`) {
+		t.Fatalf("body = %s", body)
+	}
+}
+
+func TestShouldCreatePreviewProxy(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{path: "/api/media", want: false},
+		{path: "/api/media?proxy=0", want: false},
+		{path: "/api/media?proxy=false", want: false},
+		{path: "/api/media?proxy=1", want: true},
+		{path: "/api/media?proxy=true", want: true},
+	}
+
+	for _, test := range tests {
+		req := httptest.NewRequest(http.MethodPost, test.path, nil)
+		if got := shouldCreatePreviewProxy(req); got != test.want {
+			t.Fatalf("shouldCreatePreviewProxy(%q) = %v, want %v", test.path, got, test.want)
+		}
+	}
+}
+
+func TestMediaPreviewEndpointServesProxy(t *testing.T) {
+	dataDir := t.TempDir()
+	server, err := NewServer(Options{DeepgramAPIKey: "test-key", DataDir: dataDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sourcePath := filepath.Join(server.UploadsDir(), "med_test.mp4")
+	if err := os.WriteFile(sourcePath, []byte("source bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	previewPath := filepath.Join(server.PreviewsDir(), "med_test.mp4")
+	if err := os.WriteFile(previewPath, []byte("preview bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server.store.media["med_test"] = &mediaRecord{
+		ID:          "med_test",
+		Filename:    "source.mp4",
+		ContentType: "video/mp4",
+		Path:        sourcePath,
+		PreviewPath: previewPath,
+		Status:      "preview_ready",
+		CreatedAt:   time.Now().UTC(),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/media/med_test/preview", nil)
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "video/mp4") {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	if rec.Body.String() != "preview bytes" {
+		t.Fatalf("body = %q", rec.Body.String())
+	}
+}
+
+func TestMediaPreviewEndpointFallsBackToSource(t *testing.T) {
+	dataDir := t.TempDir()
+	server, err := NewServer(Options{DeepgramAPIKey: "test-key", DataDir: dataDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(server.UploadsDir(), "med_test.mp4")
+	if err := os.WriteFile(path, []byte("source bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server.store.media["med_test"] = &mediaRecord{
+		ID:          "med_test",
+		Filename:    "source.mp4",
+		ContentType: "video/mp4",
+		Path:        path,
+		Status:      "ready",
+		CreatedAt:   time.Now().UTC(),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/media/med_test/preview", nil)
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if rec.Body.String() != "source bytes" {
+		t.Fatalf("body = %q", rec.Body.String())
+	}
+}

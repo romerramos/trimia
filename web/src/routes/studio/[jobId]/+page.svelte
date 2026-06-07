@@ -263,20 +263,6 @@
 				<h1 class="text-2xl font-semibold tracking-tight">Trimia Studio</h1>
 				<p class="text-xs text-muted-foreground">Job {data.job.jobId}</p>
 			</div>
-
-			{#if processing}
-				<div class="flex items-center gap-2 text-sm text-muted-foreground">
-					<span class="h-2 w-2 animate-pulse rounded-full bg-primary"></span>
-					<span class="capitalize">{data.job.phase.replaceAll('_', ' ')}</span>
-					{#if indeterminate}
-						<span class="font-mono tabular-nums"
-							>Working… {formatTime(transcribeElapsedSeconds)}</span
-						>
-					{:else}
-						<span>{Math.round(data.job.progress)}%</span>
-					{/if}
-				</div>
-			{/if}
 		</header>
 
 		{#if processing}

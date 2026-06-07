@@ -3,6 +3,7 @@ import { parseJsonResponse } from '$lib/concepts/http';
 import type {
 	CreateJobResponse,
 	Job,
+	Media,
 	SaveSegmentsInput,
 	SaveSegmentsResponse,
 	SegmentsResponse
@@ -60,6 +61,15 @@ export async function createJob(
 	return parseJsonResponse<CreateJobResponse>(response, 'create job');
 }
 
+export async function fetchMedia(mediaId: string, fetcher: typeof fetch): Promise<Media> {
+	const response = await fetcher(new URL(`/api/media/${mediaId}`, apiUrl));
+	return parseJsonResponse<Media>(response, 'load media');
+}
+
 export function sourceUrl(mediaId: string): string {
 	return new URL(`/api/media/${mediaId}/source`, apiUrl).toString();
+}
+
+export function previewUrl(mediaId: string): string {
+	return new URL(`/api/media/${mediaId}/preview`, apiUrl).toString();
 }

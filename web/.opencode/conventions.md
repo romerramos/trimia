@@ -145,6 +145,11 @@ import type * as trimia from '$lib/concepts/trimia';
 let localSegments = $state<trimia.Segment[]>([]);
 ```
 
+Do not create auxiliary local type aliases when the imported type name is
+already available through the namespace. Prefer `core.Media` directly over
+`type TrimiaMedia = core.Media`, and prefer `Media` directly over
+`type TrimiaMedia = Media` when using named type imports.
+
 Internal usage within the same concept (e.g. `service.ts` importing from
 `./types`) uses regular named imports — that is fine.
 

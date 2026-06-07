@@ -2,6 +2,7 @@
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Card from '$lib/components/ui/card/index.js';
+	import { Checkbox } from '$lib/components/ui/checkbox/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import { goto } from '$app/navigation';
@@ -15,17 +16,9 @@
 	let progress = $state(0);
 	let error = $state('');
 	let detail = $state('');
-	let media = $state<TrimiaMedia>();
-
-	type TrimiaMedia = {
-		mediaId: string;
-		filename: string;
-		contentType: string;
-		sizeBytes: number;
-		durationSeconds: number;
-		status: string;
-		createdAt: string;
-	};
+	let uploadStatus = $state('');
+	let createProxy = $state(false);
+	let media = $state<core.Media>();
 
 	const formatBytes = (bytes: number) => {
 		const units = ['B', 'KB', 'MB', 'GB'];
@@ -50,6 +43,7 @@
 		event.preventDefault();
 		error = '';
 		detail = '';
+		uploadStatus = '';
 		media = undefined;
 		progress = 0;
 
@@ -66,9 +60,20 @@
 
 		uploading = true;
 		try {
-			media = await uploadWithProgress(data.upload.url, data.upload.token, file);
+			uploadStatus = 'Uploading video';
+			const uploadedMedia = await uploadWithProgress(
+				data.upload.url,
+				data.upload.token,
+				file,
+				createProxy
+			);
+			media = uploadedMedia;
 			progress = 100;
-			const job = await createJob(data.jobsUrl, media.mediaId);
+			if (createProxy) {
+				media = await waitForPreview(uploadedMedia.mediaId);
+			}
+			uploadStatus = 'Starting analysis';
+			const job = await createJob(data.jobsUrl, uploadedMedia.mediaId);
 			await goto(resolve('/studio/[jobId]', { jobId: job.jobId }));
 		} catch (uploadError) {
 			error = 'Upload failed.';
@@ -78,22 +83,27 @@
 		}
 	};
 
-	const uploadWithProgress = (uploadUrl: string, token: string, file: File) => {
-		return new Promise<TrimiaMedia>((resolve, reject) => {
+	const uploadWithProgress = (uploadUrl: string, token: string, file: File, proxy: boolean) => {
+		return new Promise<core.Media>((resolve, reject) => {
 			const request = new XMLHttpRequest();
 			const body = new FormData();
 			body.append('file', file, file.name);
+			const url = new URL(uploadUrl);
+			url.searchParams.set('proxy', proxy ? '1' : '0');
 
-			request.open('POST', uploadUrl);
+			request.open('POST', url.toString());
 			request.setRequestHeader('Authorization', `Bearer ${token}`);
 			request.upload.onprogress = (event) => {
 				if (event.lengthComputable) {
 					progress = Math.round((event.loaded / event.total) * 100);
+					if (proxy && progress >= 100) {
+						uploadStatus = 'Preparing browser preview';
+					}
 				}
 			};
 			request.onload = () => {
 				if (request.status >= 200 && request.status < 300) {
-					resolve(JSON.parse(request.responseText) as TrimiaMedia);
+					resolve(JSON.parse(request.responseText) as core.Media);
 					return;
 				}
 
@@ -102,6 +112,30 @@
 			request.onerror = () => reject(new Error('Could not reach the Trimia server.'));
 			request.send(body);
 		});
+	};
+
+	const waitForPreview = async (mediaId: string) => {
+		const startedAt = Date.now();
+		const timeoutMs = 20 * 60 * 1000;
+
+		while (Date.now() - startedAt < timeoutMs) {
+			const nextMedia = await fetchMedia(data.upload.url, mediaId);
+			progress = Math.round(nextMedia.previewProgress ?? 0);
+			uploadStatus = 'Preparing browser preview';
+
+			if (nextMedia.previewStatus === 'preview_ready') {
+				progress = 100;
+				return nextMedia;
+			}
+
+			if (nextMedia.previewStatus === 'preview_failed') {
+				throw new Error(nextMedia.previewError || 'Could not prepare browser preview.');
+			}
+
+			await new Promise((resolve) => window.setTimeout(resolve, 1000));
+		}
+
+		throw new Error('Preparing the browser preview timed out.');
 	};
 
 	const createJob = async (jobsUrl: string, mediaId: string) => {
@@ -124,6 +158,15 @@
 
 		return (await response.json()) as core.Job;
 	};
+
+	const fetchMedia = async (mediaUrl: string, mediaId: string) => {
+		const response = await fetch(`${mediaUrl.replace(/\/$/, '')}/${mediaId}`);
+		if (!response.ok) {
+			throw new Error((await response.text()) || `Trimia returned ${response.status}`);
+		}
+
+		return (await response.json()) as core.Media;
+	};
 </script>
 
 <svelte:head>
@@ -138,22 +181,20 @@
 			<p class="text-sm font-medium text-muted-foreground">Signed in as {data.user.email}</p>
 			<h1 class="text-4xl font-semibold tracking-tight text-balance">Upload a video to Trimia</h1>
 			<p class="max-w-2xl text-lg text-pretty text-muted-foreground">
-				Send an MP4, MOV, or WebM file to the local Trimia server. Trimia will save the upload and
-				probe the duration before the next editing step.
+				Send an MP4, MOV, or WebM file to the local Trimia server.
 			</p>
 		</div>
 
 		<Card.Root class="shadow-sm">
 			<Card.Header>
-				<Card.Title>Video upload</Card.Title>
-				<Card.Description
-					>Large files are supported. Keep this tab open while Trimia uploads and starts analysis.</Card.Description
-				>
+				<Card.Description>
+					Large files are supported (max 5GB). Keep this tab open while Trimia uploads and starts
+					analysis.
+				</Card.Description>
 			</Card.Header>
 			<Card.Content>
 				<form class="space-y-5" onsubmit={uploadVideo}>
 					<div class="space-y-2">
-						<Label for="file">Video file</Label>
 						<Input
 							id="file"
 							name="file"
@@ -161,10 +202,20 @@
 							accept="video/mp4,video/quicktime,video/webm"
 							bind:files
 						/>
-						<p class="text-sm text-muted-foreground">
-							The browser uploads directly to Trimia with a short-lived upload token, so SvelteKit
-							does not buffer the video.
-						</p>
+					</div>
+
+					<div class="flex items-start gap-3 rounded-lg border bg-muted/30 p-3">
+						<Checkbox id="create-proxy" bind:checked={createProxy} class="mt-0.5" />
+						<div class="space-y-1 leading-none">
+							<Label for="create-proxy">Create faster Studio preview</Label>
+							<p class="text-sm leading-5 text-muted-foreground">
+								Creates a lower-resolution preview for the Studio player, which can make cuts and
+								scrubbing feel snappier. Leave it unchecked to skip the extra wait.
+							</p>
+							<p class="text-sm leading-5 text-muted-foreground">
+								Final renders still use the original video quality.
+							</p>
+						</div>
 					</div>
 
 					{#if uploading}
@@ -175,12 +226,15 @@
 									style={`width: ${progress}%`}
 								></div>
 							</div>
-							<p class="text-sm text-muted-foreground">Uploading {progress}%</p>
+							<p class="text-sm text-muted-foreground">
+								{uploadStatus || 'Uploading video'}
+								{progress}%
+							</p>
 						</div>
 					{/if}
 
 					<Button type="submit" disabled={uploading}
-						>{uploading ? 'Uploading...' : 'Upload video'}</Button
+						>{uploading ? uploadStatus || 'Uploading...' : 'Upload video'}</Button
 					>
 				</form>
 			</Card.Content>

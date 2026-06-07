@@ -131,6 +131,39 @@ func TestSegmentArgsUsesDurationNotAbsoluteEndTime(t *testing.T) {
 	}
 }
 
+func TestPreviewProxyArgsOptimizesForBrowserSeeking(t *testing.T) {
+	args := previewProxyArgs(PreviewProxyOptions{
+		InputPath:  "input.mov",
+		OutputPath: "preview.mp4",
+		Overwrite:  true,
+	})
+
+	want := []string{
+		"-hide_banner",
+		"-nostdin",
+		"-progress", "pipe:1",
+		"-stats",
+		"-y",
+		"-i", "input.mov",
+		"-vf", "scale='min(1280,iw)':-2",
+		"-c:v", "libx264",
+		"-preset", "veryfast",
+		"-crf", "24",
+		"-pix_fmt", "yuv420p",
+		"-g", "30",
+		"-keyint_min", "30",
+		"-sc_threshold", "0",
+		"-c:a", "aac",
+		"-b:a", "128k",
+		"-movflags", "+faststart",
+		"preview.mp4",
+	}
+
+	if !reflect.DeepEqual(args, want) {
+		t.Fatalf("args = %#v, want %#v", args, want)
+	}
+}
+
 func containsArg(args []string, value string) bool {
 	for _, arg := range args {
 		if arg == value {

@@ -46,6 +46,20 @@ type CutVideoOptions struct {
 	Progress   ProgressFunc
 }
 
+type PreviewProxyOptions struct {
+	InputPath  string
+	OutputPath string
+	Overwrite  bool
+	MaxWidth   int
+	CRF        int
+	Preset     string
+	AudioRate  string
+	GOPSize    int
+	Duration   float64
+	LogWriter  io.Writer
+	Progress   ProgressFunc
+}
+
 func CutVideo(ctx context.Context, opts CutVideoOptions) error {
 	return NewClient().CutVideo(ctx, opts)
 }
@@ -108,6 +122,75 @@ func (*Client) CutVideo(ctx context.Context, opts CutVideoOptions) error {
 		}
 
 		return fmt.Errorf("cut video: %w: %s", err, message)
+	}
+
+	return nil
+}
+
+func CreatePreviewProxy(ctx context.Context, opts PreviewProxyOptions) error {
+	return NewClient().CreatePreviewProxy(ctx, opts)
+}
+
+func (*Client) CreatePreviewProxy(ctx context.Context, opts PreviewProxyOptions) error {
+	if err := validatePreviewProxyOptions(opts); err != nil {
+		return err
+	}
+
+	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		return errors.New("ffmpeg executable not found in PATH")
+	}
+
+	cmd := exec.CommandContext(ctx, ffmpegPath, previewProxyArgs(opts)...)
+	if opts.LogWriter != nil || opts.Progress != nil {
+		if err := runWithProgress(cmd, opts.LogWriter, opts.Progress, opts.Duration); err != nil {
+			return fmt.Errorf("create preview proxy: %w", err)
+		}
+
+		return nil
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			return fmt.Errorf("create preview proxy: %w", err)
+		}
+
+		return fmt.Errorf("create preview proxy: %w: %s", err, message)
+	}
+
+	return nil
+}
+
+func validatePreviewProxyOptions(opts PreviewProxyOptions) error {
+	if opts.InputPath == "" {
+		return errors.New("input path is required")
+	}
+
+	if opts.OutputPath == "" {
+		return errors.New("output path is required")
+	}
+
+	inputInfo, err := os.Stat(opts.InputPath)
+	if err != nil {
+		return fmt.Errorf("input file: %w", err)
+	}
+
+	if inputInfo.IsDir() {
+		return errors.New("input path must be a file")
+	}
+
+	if !opts.Overwrite {
+		if _, err := os.Stat(opts.OutputPath); err == nil {
+			return errors.New("output file already exists")
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("output file: %w", err)
+		}
+	}
+
+	if err := os.MkdirAll(filepath.Dir(opts.OutputPath), 0o755); err != nil {
+		return fmt.Errorf("create output directory: %w", err)
 	}
 
 	return nil
@@ -389,6 +472,64 @@ func segmentArgs(opts CutVideoOptions, segment Segment, outputPath string) []str
 		"-b:a", settings.audioRate,
 		outputPath,
 	}
+
+	return args
+}
+
+func previewProxyArgs(opts PreviewProxyOptions) []string {
+	maxWidth := opts.MaxWidth
+	if maxWidth == 0 {
+		maxWidth = 1280
+	}
+
+	crf := opts.CRF
+	if crf == 0 {
+		crf = 24
+	}
+
+	preset := opts.Preset
+	if preset == "" {
+		preset = defaultPreset
+	}
+
+	audioRate := opts.AudioRate
+	if audioRate == "" {
+		audioRate = "128k"
+	}
+
+	gopSize := opts.GOPSize
+	if gopSize == 0 {
+		gopSize = 30
+	}
+
+	args := []string{
+		"-hide_banner",
+		"-nostdin",
+		"-progress", "pipe:1",
+		"-stats",
+	}
+	if opts.Overwrite {
+		args = append(args, "-y")
+	} else {
+		args = append(args, "-n")
+	}
+
+	args = append(
+		args,
+		"-i", opts.InputPath,
+		"-vf", fmt.Sprintf("scale='min(%d,iw)':-2", maxWidth),
+		"-c:v", defaultVideoCodec,
+		"-preset", preset,
+		"-crf", fmt.Sprintf("%d", crf),
+		"-pix_fmt", "yuv420p",
+		"-g", fmt.Sprintf("%d", gopSize),
+		"-keyint_min", fmt.Sprintf("%d", gopSize),
+		"-sc_threshold", "0",
+		"-c:a", defaultAudioCodec,
+		"-b:a", audioRate,
+		"-movflags", "+faststart",
+		opts.OutputPath,
+	)
 
 	return args
 }

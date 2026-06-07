@@ -1,5 +1,18 @@
 import type * as segments from '$lib/concepts/video/segments';
 
+export type Media = {
+	mediaId: string;
+	filename: string;
+	contentType: string;
+	sizeBytes: number;
+	durationSeconds: number;
+	status: string;
+	previewStatus: string;
+	previewProgress: number;
+	previewError?: string;
+	createdAt: string;
+};
+
 export type Job = {
 	jobId: string;
 	mediaId: string;

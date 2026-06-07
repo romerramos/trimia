@@ -39,7 +39,7 @@ func NewServer(opts Options) (*Server, error) {
 		dataDir = filepath.Join(os.TempDir(), "trimia-api")
 	}
 
-	for _, dir := range []string{dataDir, filepath.Join(dataDir, "uploads"), filepath.Join(dataDir, "outputs")} {
+	for _, dir := range []string{dataDir, filepath.Join(dataDir, "uploads"), filepath.Join(dataDir, "outputs"), filepath.Join(dataDir, "previews")} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, fmt.Errorf("create data directory: %w", err)
 		}
@@ -64,10 +64,20 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/media", s.handleMedia)
-	mux.HandleFunc("/api/media/", s.handleMediaSource)
+	mux.HandleFunc("/api/media/", s.handleMediaRoute)
 	mux.HandleFunc("/api/jobs", s.handleJobs)
 	mux.HandleFunc("/api/jobs/", s.handleJob)
 	return s.logRequests(s.cors(mux))
+}
+
+func (s *Server) handleMediaRoute(w http.ResponseWriter, r *http.Request) {
+	_, action := splitMediaPath(r.URL.Path)
+	if action == "source" || action == "preview" {
+		s.handleMediaSource(w, r)
+		return
+	}
+
+	s.handleMediaItem(w, r)
 }
 
 func (s *Server) cors(next http.Handler) http.Handler {
@@ -121,6 +131,10 @@ func (s *Server) DataDir() string {
 
 func (s *Server) UploadsDir() string {
 	return filepath.Join(s.store.dataDir, "uploads")
+}
+
+func (s *Server) PreviewsDir() string {
+	return filepath.Join(s.store.dataDir, "previews")
 }
 
 func (s *Server) MaxUploadBytes() int64 {
