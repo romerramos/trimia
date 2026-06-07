@@ -10,6 +10,8 @@ export type Media = {
 	previewStatus: string;
 	previewProgress: number;
 	previewError?: string;
+	waveformStatus: string;
+	waveformError?: string;
 	createdAt: string;
 };
 
@@ -37,6 +39,13 @@ export type SegmentsResponse = {
 	jobId: string;
 	version: number;
 	segments: segments.Segment[];
+};
+
+export type Waveform = {
+	mediaId: string;
+	durationSeconds: number;
+	samplesPerSecond: number;
+	peaks: number[][];
 };
 
 export type SaveSegmentsInput = {

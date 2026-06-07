@@ -108,29 +108,37 @@ func (p pipeline) Analyze(ctx context.Context, opts AnalyzeOptions) (*AnalysisRe
 	}
 	p.logf("probe input: completed duration=%.2fs", inputDuration)
 
-	audioPath, err := createTempAudioPath()
-	if err != nil {
-		return nil, err
-	}
+	audioPath := opts.AudioPath
+	usingProvidedAudio := audioPath != ""
+	if audioPath == "" {
+		var err error
+		audioPath, err = createTempAudioPath()
+		if err != nil {
+			return nil, err
+		}
 
-	if !opts.KeepTempFiles {
-		defer os.Remove(audioPath)
-	}
+		if !opts.KeepTempFiles {
+			defer os.Remove(audioPath)
+		}
 
-	p.logf("extract audio: starting output=%s", audioPath)
-	p.progress("Extracting audio", 0)
-	if err := p.mediaProcessor.ExtractAudio(ctx, ffmpeg.ExtractAudioOptions{
-		InputPath:  opts.InputPath,
-		OutputPath: audioPath,
-		Overwrite:  true,
-		LogWriter:  p.logWriter,
-		Progress:   p.phaseProgress("Extracting audio"),
-		Duration:   inputDuration,
-	}); err != nil {
-		return nil, err
+		p.logf("extract audio: starting output=%s", audioPath)
+		p.progress("Extracting audio", 0)
+		if err := p.mediaProcessor.ExtractAudio(ctx, ffmpeg.ExtractAudioOptions{
+			InputPath:  opts.InputPath,
+			OutputPath: audioPath,
+			Overwrite:  true,
+			LogWriter:  p.logWriter,
+			Progress:   p.phaseProgress("Extracting audio"),
+			Duration:   inputDuration,
+		}); err != nil {
+			return nil, err
+		}
+		p.logf("extract audio: completed")
+		p.progress("Extracting audio", 100)
+	} else {
+		p.logf("extract audio: using existing audio=%s", audioPath)
+		p.progress("Extracting audio", 100)
 	}
-	p.logf("extract audio: completed")
-	p.progress("Extracting audio", 100)
 
 	p.logf("transcribe: starting Deepgram request")
 	stopTranscribeProgress := p.startIndeterminateProgress("Transcribing with Deepgram")
@@ -166,7 +174,7 @@ func (p pipeline) Analyze(ctx context.Context, opts AnalyzeOptions) (*AnalysisRe
 	p.logf("analyze: completed estimated_removed=%.2fs estimated_removed_percent=%.1f", estimatedRemovedSeconds, estimatedRemovedPercent)
 
 	resultAudioPath := ""
-	if opts.KeepTempFiles {
+	if opts.KeepTempFiles || usingProvidedAudio {
 		resultAudioPath = audioPath
 	}
 

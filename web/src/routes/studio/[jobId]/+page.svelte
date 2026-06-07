@@ -80,6 +80,20 @@
 	});
 
 	$effect(() => {
+		if (!ready || data.waveform || data.media.waveformStatus !== 'generating') {
+			return;
+		}
+
+		const interval = window.setInterval(() => {
+			void invalidateAll();
+		}, 2500);
+
+		return () => {
+			window.clearInterval(interval);
+		};
+	});
+
+	$effect(() => {
 		if (!indeterminate) {
 			transcribeElapsedSeconds = 0;
 			return;
@@ -313,6 +327,7 @@
 
 		<studio.Timeline
 			items={timelineItems}
+			waveform={data.waveform}
 			{previewRanges}
 			{duration}
 			{acceptedCount}

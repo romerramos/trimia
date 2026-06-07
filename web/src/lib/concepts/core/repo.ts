@@ -6,7 +6,8 @@ import type {
 	Media,
 	SaveSegmentsInput,
 	SaveSegmentsResponse,
-	SegmentsResponse
+	SegmentsResponse,
+	Waveform
 } from './types';
 
 export const apiUrl = env.TRIMIA_API_URL ?? 'http://127.0.0.1:3333';
@@ -25,6 +26,17 @@ export async function fetchSegments(
 		return undefined;
 	}
 	return parseJsonResponse<SegmentsResponse>(response, 'load segments');
+}
+
+export async function fetchWaveform(
+	mediaId: string,
+	fetcher: typeof fetch
+): Promise<Waveform | undefined> {
+	const response = await fetcher(new URL(`/api/media/${mediaId}/waveform`, apiUrl));
+	if (response.status === 409 || response.status === 404) {
+		return undefined;
+	}
+	return parseJsonResponse<Waveform>(response, 'load waveform');
 }
 
 export async function saveSegments(

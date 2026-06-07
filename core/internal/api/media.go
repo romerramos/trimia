@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"mime/multipart"
@@ -70,6 +71,8 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 	}
 
 	previewPath := filepath.Join(s.store.dataDir, "previews", id+".mp4")
+	audioPath := filepath.Join(s.store.dataDir, "audio", id+".mp3")
+	waveformPath := filepath.Join(s.store.dataDir, "waveforms", id+".json")
 	createProxy := shouldCreatePreviewProxy(r)
 	status := "ready"
 	previewStatus := "skipped"
@@ -89,8 +92,12 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 		Status:          status,
 		PreviewStatus:   previewStatus,
 		PreviewProgress: previewProgress,
+		AudioStatus:     "extracting",
+		WaveformStatus:  "generating",
 		Path:            path,
+		AudioPath:       audioPath,
 		PreviewPath:     previewPath,
+		WaveformPath:    waveformPath,
 		CreatedAt:       time.Now().UTC(),
 	}
 
@@ -102,6 +109,7 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 	if createProxy {
 		go s.runPreviewProxy(context.Background(), id)
 	}
+	go s.runMediaAudioPreparation(context.Background(), id)
 	writeJSON(w, http.StatusCreated, record)
 }
 
@@ -151,6 +159,100 @@ func (s *Server) runPreviewProxy(ctx context.Context, mediaID string) {
 	}
 
 	s.updateMediaPreviewProgress(mediaID, "preview_ready", 100, "")
+}
+
+func (s *Server) runMediaAudioPreparation(ctx context.Context, mediaID string) {
+	media, ok := s.lookupMedia(mediaID)
+	if !ok {
+		return
+	}
+
+	if err := ffmpeg.ExtractAudio(ctx, ffmpeg.ExtractAudioOptions{
+		InputPath:  media.Path,
+		OutputPath: media.AudioPath,
+		Overwrite:  true,
+		Duration:   media.DurationSeconds,
+	}); err != nil {
+		s.updateMediaAudioStatus(mediaID, "audio_failed", err.Error())
+		s.updateMediaWaveformStatus(mediaID, "waveform_failed", "audio extraction failed: "+err.Error())
+		return
+	}
+
+	s.updateMediaAudioStatus(mediaID, "audio_ready", "")
+	s.runWaveformGeneration(ctx, mediaID)
+}
+
+type waveformResponse struct {
+	MediaID          string      `json:"mediaId"`
+	DurationSeconds  float64     `json:"durationSeconds"`
+	SamplesPerSecond int         `json:"samplesPerSecond"`
+	Peaks            [][]float64 `json:"peaks"`
+}
+
+func (s *Server) runWaveformGeneration(ctx context.Context, mediaID string) {
+	media, ok := s.lookupMedia(mediaID)
+	if !ok {
+		return
+	}
+
+	if media.AudioStatus != "audio_ready" {
+		s.updateMediaWaveformStatus(mediaID, "waveform_failed", "audio is not ready")
+		return
+	}
+
+	waveform, err := ffmpeg.GenerateWaveform(ctx, ffmpeg.WaveformOptions{InputPath: media.AudioPath})
+	if err != nil {
+		s.updateMediaWaveformStatus(mediaID, "waveform_failed", err.Error())
+		return
+	}
+
+	file, err := os.Create(media.WaveformPath)
+	if err != nil {
+		s.updateMediaWaveformStatus(mediaID, "waveform_failed", err.Error())
+		return
+	}
+	encodeErr := json.NewEncoder(file).Encode(waveformResponse{
+		MediaID:          media.ID,
+		DurationSeconds:  media.DurationSeconds,
+		SamplesPerSecond: waveform.SamplesPerSecond,
+		Peaks:            waveform.Peaks,
+	})
+	closeErr := file.Close()
+	if encodeErr != nil {
+		s.updateMediaWaveformStatus(mediaID, "waveform_failed", encodeErr.Error())
+		return
+	}
+	if closeErr != nil {
+		s.updateMediaWaveformStatus(mediaID, "waveform_failed", closeErr.Error())
+		return
+	}
+
+	s.updateMediaWaveformStatus(mediaID, "waveform_ready", "")
+}
+
+func (s *Server) handleMediaWaveform(w http.ResponseWriter, r *http.Request) {
+	mediaID, action := splitMediaPath(r.URL.Path)
+	if mediaID == "" || action != "waveform" {
+		writeError(w, http.StatusNotFound, "endpoint not found", nil)
+		return
+	}
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w)
+		return
+	}
+
+	media, ok := s.lookupMedia(mediaID)
+	if !ok {
+		writeError(w, http.StatusNotFound, "media not found", nil)
+		return
+	}
+	if media.WaveformStatus != "waveform_ready" {
+		writeError(w, http.StatusConflict, "waveform is not ready", nil)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	http.ServeFile(w, r, media.WaveformPath)
 }
 
 func (s *Server) handleMediaSource(w http.ResponseWriter, r *http.Request) {

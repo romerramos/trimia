@@ -39,7 +39,7 @@ func NewServer(opts Options) (*Server, error) {
 		dataDir = filepath.Join(os.TempDir(), "trimia-api")
 	}
 
-	for _, dir := range []string{dataDir, filepath.Join(dataDir, "uploads"), filepath.Join(dataDir, "outputs"), filepath.Join(dataDir, "previews")} {
+	for _, dir := range []string{dataDir, filepath.Join(dataDir, "uploads"), filepath.Join(dataDir, "outputs"), filepath.Join(dataDir, "previews"), filepath.Join(dataDir, "waveforms"), filepath.Join(dataDir, "audio")} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, fmt.Errorf("create data directory: %w", err)
 		}
@@ -74,6 +74,10 @@ func (s *Server) handleMediaRoute(w http.ResponseWriter, r *http.Request) {
 	_, action := splitMediaPath(r.URL.Path)
 	if action == "source" || action == "preview" {
 		s.handleMediaSource(w, r)
+		return
+	}
+	if action == "waveform" {
+		s.handleMediaWaveform(w, r)
 		return
 	}
 
@@ -135,6 +139,14 @@ func (s *Server) UploadsDir() string {
 
 func (s *Server) PreviewsDir() string {
 	return filepath.Join(s.store.dataDir, "previews")
+}
+
+func (s *Server) WaveformsDir() string {
+	return filepath.Join(s.store.dataDir, "waveforms")
+}
+
+func (s *Server) AudioDir() string {
+	return filepath.Join(s.store.dataDir, "audio")
 }
 
 func (s *Server) MaxUploadBytes() int64 {

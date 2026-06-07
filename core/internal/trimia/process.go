@@ -58,6 +58,7 @@ type Segment struct {
 
 type AnalyzeOptions struct {
 	InputPath string
+	AudioPath string
 
 	DeepgramAPIKey string
 

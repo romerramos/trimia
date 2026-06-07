@@ -239,3 +239,55 @@ func TestMediaPreviewEndpointFallsBackToSource(t *testing.T) {
 		t.Fatalf("body = %q", rec.Body.String())
 	}
 }
+
+func TestMediaWaveformEndpointServesReadyWaveform(t *testing.T) {
+	dataDir := t.TempDir()
+	server, err := NewServer(Options{DeepgramAPIKey: "test-key", DataDir: dataDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	waveformPath := filepath.Join(server.WaveformsDir(), "med_test.json")
+	if err := os.WriteFile(waveformPath, []byte(`{"mediaId":"med_test","peaks":[[-1,1]]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server.store.media["med_test"] = &mediaRecord{
+		ID:             "med_test",
+		Filename:       "source.mp4",
+		ContentType:    "video/mp4",
+		WaveformPath:   waveformPath,
+		WaveformStatus: "waveform_ready",
+		CreatedAt:      time.Now().UTC(),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/media/med_test/waveform", nil)
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), `"peaks":[[-1,1]]`) {
+		t.Fatalf("body = %q", rec.Body.String())
+	}
+}
+
+func TestMediaWaveformEndpointReturnsConflictWhenNotReady(t *testing.T) {
+	server, err := NewServer(Options{DeepgramAPIKey: "test-key", DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.store.media["med_test"] = &mediaRecord{
+		ID:             "med_test",
+		WaveformStatus: "generating",
+		CreatedAt:      time.Now().UTC(),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/media/med_test/waveform", nil)
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)
+	}
+}

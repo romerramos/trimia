@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { contentWidth, itemWidth, itemsFromSegments, playheadLeft } from './helpers';
+import {
+	contentWidth,
+	itemWidth,
+	itemsFromSegments,
+	playheadLeft
+} from './helpers';
 import type * as segments from '$lib/concepts/video/segments';
 
 describe('timeline helpers', () => {
@@ -40,6 +45,7 @@ describe('timeline helpers', () => {
 			Number.parseFloat(playheadLeft(600, duration, 'playhead', pixelsPerSecond))
 		);
 	});
+
 });
 
 function segment(id: string, start: number, end: number): segments.Segment {

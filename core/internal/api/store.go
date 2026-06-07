@@ -17,8 +17,14 @@ type mediaRecord struct {
 	PreviewStatus   string    `json:"previewStatus"`
 	PreviewProgress float64   `json:"previewProgress"`
 	PreviewError    string    `json:"previewError,omitempty"`
+	AudioStatus     string    `json:"audioStatus"`
+	AudioError      string    `json:"audioError,omitempty"`
+	WaveformStatus  string    `json:"waveformStatus"`
+	WaveformError   string    `json:"waveformError,omitempty"`
 	Path            string    `json:"-"`
+	AudioPath       string    `json:"-"`
 	PreviewPath     string    `json:"-"`
+	WaveformPath    string    `json:"-"`
 	CreatedAt       time.Time `json:"createdAt"`
 }
 
@@ -85,6 +91,28 @@ func (s *Server) updateMediaPreviewProgress(id, status string, progress float64,
 	media.PreviewProgress = progress
 	media.PreviewError = errorMessage
 	media.Status = status
+}
+
+func (s *Server) updateMediaWaveformStatus(id, status string, errorMessage string) {
+	s.store.mu.Lock()
+	defer s.store.mu.Unlock()
+	media := s.store.media[id]
+	if media == nil {
+		return
+	}
+	media.WaveformStatus = status
+	media.WaveformError = errorMessage
+}
+
+func (s *Server) updateMediaAudioStatus(id, status string, errorMessage string) {
+	s.store.mu.Lock()
+	defer s.store.mu.Unlock()
+	media := s.store.media[id]
+	if media == nil {
+		return
+	}
+	media.AudioStatus = status
+	media.AudioError = errorMessage
 }
 
 func (s *Server) lookupJob(id string) (*jobRecord, bool) {

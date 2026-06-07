@@ -6,12 +6,37 @@ Trimia removes silence and filler words from videos. It extracts audio with ffmp
 
 - Go 1.25.1 or newer
 - `ffmpeg` and `ffprobe` installed and available in `PATH`
+- `audiowaveform` installed and available in `PATH` for timeline waveform generation
 - A Deepgram API key
 
-On macOS, ffmpeg can be installed with Homebrew:
+On macOS, media dependencies can be installed with Homebrew:
 
 ```sh
-brew install ffmpeg
+brew install ffmpeg audiowaveform
+```
+
+On Debian/Ubuntu, install ffmpeg from apt and audiowaveform from the BBC package repository:
+
+```sh
+sudo apt update
+sudo apt install ffmpeg wget gnupg
+wget -qO - https://apt.bbc.com/repo/bbc.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/bbc-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/bbc-archive-keyring.gpg] https://apt.bbc.com/repo/apt/debian stable main" | sudo tee /etc/apt/sources.list.d/bbc.list
+sudo apt update
+sudo apt install audiowaveform
+```
+
+On Arch Linux, install ffmpeg from pacman and audiowaveform from the AUR:
+
+```sh
+sudo pacman -S ffmpeg
+yay -S audiowaveform
+```
+
+On Windows, install ffmpeg and audiowaveform with Chocolatey:
+
+```powershell
+choco install ffmpeg audiowaveform
 ```
 
 ## Setup

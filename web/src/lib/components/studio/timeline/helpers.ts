@@ -62,7 +62,7 @@ export function contextMenuLabel(item: TimelineItem) {
 export function itemClass(item: TimelineItem, savingSegmentId: string) {
 	return [
 		item.included
-			? 'bg-foreground hover:bg-foreground/90'
+			? 'bg-transparent hover:bg-foreground/10'
 			: 'bg-destructive/25 hover:bg-destructive/35',
 		item.edited ? 'opacity-65 ring-1 ring-inset ring-primary/50' : '',
 		savingSegmentId === item.segmentId ? 'opacity-50' : '',

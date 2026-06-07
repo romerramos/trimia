@@ -71,6 +71,7 @@
 		"vitest-browser-svelte": "^2.1.0"
 	},
 	"dependencies": {
-		"@lucide/svelte": "^1.17.0"
+		"@lucide/svelte": "^1.17.0",
+		"wavesurfer.js": "^7.12.7"
 	}
 }

@@ -1,9 +1,11 @@
 <script lang="ts">
 	import type * as segments from '$lib/concepts/video/segments';
+	import type * as core from '$lib/concepts/core';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import { formatTime } from '../helpers';
 	import EmptyTimeline from './EmptyTimeline.svelte';
 	import TimelineBar from './TimelineBar.svelte';
+	import TimelineWaveform from './TimelineWaveform.svelte';
 	import TimelineZoomControl from './TimelineZoomControl.svelte';
 	import { contentWidth, itemWidth, playheadLeft, resolveAcceptedDragTime } from './helpers';
 	import type { TimelineItem, TimelineZoom } from './types';
@@ -12,6 +14,7 @@
 
 	let {
 		items,
+		waveform,
 		previewRanges,
 		duration,
 		acceptedCount,
@@ -26,6 +29,7 @@
 		onRefresh
 	}: {
 		items: TimelineItem[];
+		waveform?: core.Waveform;
 		previewRanges: segments.PreviewRange[];
 		duration: number;
 		acceptedCount: number;
@@ -163,7 +167,8 @@
 								class="pointer-events-none mx-auto h-[4rem] w-0.5 bg-red-500 shadow-[0_0_0_1px_rgba(255,255,255,0.55)]"
 							></div>
 						</div>
-						<div class="flex h-16 overflow-hidden rounded-md">
+						<div class="relative flex h-16 overflow-hidden rounded-md border bg-muted/25">
+							<TimelineWaveform {waveform} {duration} />
 							{#each items as item, index (item.id)}
 								<TimelineBar
 									{item}

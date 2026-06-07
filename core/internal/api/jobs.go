@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -94,6 +95,10 @@ func (s *Server) handleGetJob(w http.ResponseWriter, jobID string) {
 
 func (s *Server) runAnalysis(ctx context.Context, jobID string) {
 	s.updateJobProgress(jobID, "running", "probing_input", 0, "")
+	if err := s.waitForJobAudio(ctx, jobID); err != nil {
+		s.updateJobProgress(jobID, "failed", "failed", 100, err.Error())
+		return
+	}
 	result, err := trimia.Analyze(ctx, s.jobAnalyzeOptions(jobID, func(phase string, percent float64) {
 		s.updateJobProgress(jobID, "running", apiPhase(phase), percent, "")
 	}))
@@ -130,7 +135,45 @@ func (s *Server) runAnalysis(ctx context.Context, jobID string) {
 func (s *Server) jobAnalyzeOptions(jobID string, progress trimia.ProgressFunc) trimia.AnalyzeOptions {
 	s.store.mu.RLock()
 	defer s.store.mu.RUnlock()
-	opts := s.store.jobs[jobID].Options
+	job := s.store.jobs[jobID]
+	opts := job.Options
+	if media := s.store.media[job.MediaID]; media != nil && media.AudioStatus == "audio_ready" {
+		opts.AudioPath = media.AudioPath
+	}
 	opts.Progress = progress
 	return opts
+}
+
+func (s *Server) waitForJobAudio(ctx context.Context, jobID string) error {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		s.store.mu.RLock()
+		job := s.store.jobs[jobID]
+		media := s.store.media[job.MediaID]
+		status := ""
+		errorMessage := ""
+		if media != nil {
+			status = media.AudioStatus
+			errorMessage = media.AudioError
+		}
+		s.store.mu.RUnlock()
+
+		switch status {
+		case "audio_ready":
+			return nil
+		case "audio_failed":
+			if errorMessage == "" {
+				errorMessage = "audio extraction failed"
+			}
+			return errors.New(errorMessage)
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }

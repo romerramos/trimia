@@ -9,12 +9,16 @@ export const load: PageServerLoad = async (event) => {
 	}
 
 	const job = await core.fetchJob(event.params.jobId, event.fetch);
+	const media = await core.fetchMedia(job.mediaId, event.fetch);
 	const segments = job.analysis ? await core.fetchSegments(job.jobId, event.fetch) : undefined;
+	const waveform = await core.fetchWaveform(job.mediaId, event.fetch);
 
 	return {
 		user: event.locals.user,
 		job,
+		media,
 		segments,
+		waveform,
 		sourceUrl: core.previewUrl(job.mediaId)
 	};
 };
