@@ -1,9 +1,9 @@
 import { env } from '$env/dynamic/private';
 import { redirect } from '@sveltejs/kit';
 import { createHmac } from 'node:crypto';
+import * as core from '$lib/concepts/core';
 import type { PageServerLoad } from './$types';
 
-const trimiaApiUrl = env.TRIMIA_API_URL ?? 'http://127.0.0.1:3333';
 const tokenSecret = env.TRIMIA_UPLOAD_TOKEN_SECRET ?? env.BETTER_AUTH_SECRET;
 
 export const load: PageServerLoad = (event) => {
@@ -14,10 +14,10 @@ export const load: PageServerLoad = (event) => {
 	return {
 		user: event.locals.user,
 		upload: {
-			url: new URL('/api/media', trimiaApiUrl).toString(),
+			url: new URL('/api/media', core.apiUrl).toString(),
 			token: createUploadJwt(event.locals.user.id)
 		},
-		jobsUrl: new URL('/api/jobs', trimiaApiUrl).toString()
+		jobsUrl: new URL('/api/jobs', core.apiUrl).toString()
 	};
 };
 
