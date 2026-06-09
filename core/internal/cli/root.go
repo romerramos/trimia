@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"romerramos/trimia/internal/api"
+	"romerramos/trimia/internal/deepgram"
 	"romerramos/trimia/internal/trimia"
 
 	"github.com/joho/godotenv"
@@ -337,24 +338,25 @@ func run(ctx context.Context, opts options) error {
 
 	progress := newProgressPrinter()
 	result, err := trimia.Process(ctx, trimia.ProcessOptions{
-		InputPath:         opts.inputPath,
-		OutputPath:        opts.outputPath,
-		DeepgramAPIKey:    apiKey,
-		RemoveSilence:     true,
-		RemoveFillerWords: true,
-		Language:          opts.language,
-		DetectLanguage:    opts.detectLanguage,
-		PreRoll:           &opts.preRoll,
-		PostRoll:          &opts.postRoll,
-		MergeGap:          &opts.mergeGap,
-		Overwrite:         opts.overwrite,
-		KeepTempFiles:     opts.keepTempFiles,
-		LogDir:            opts.logDir,
-		Progress:          progress.Update,
-		RenderMode:        opts.renderMode,
-		VideoPreset:       opts.videoPreset,
-		VideoCRF:          opts.videoCRF,
-		AudioRate:         opts.audioRate,
+		InputPath:           opts.inputPath,
+		OutputPath:          opts.outputPath,
+		Transcriber:         deepgram.NewTranscriber(apiKey),
+		TranscriberProvider: deepgram.Provider,
+		RemoveSilence:       true,
+		RemoveFillerWords:   true,
+		Language:            opts.language,
+		DetectLanguage:      opts.detectLanguage,
+		PreRoll:             &opts.preRoll,
+		PostRoll:            &opts.postRoll,
+		MergeGap:            &opts.mergeGap,
+		Overwrite:           opts.overwrite,
+		KeepTempFiles:       opts.keepTempFiles,
+		LogDir:              opts.logDir,
+		Progress:            progress.Update,
+		RenderMode:          opts.renderMode,
+		VideoPreset:         opts.videoPreset,
+		VideoCRF:            opts.videoCRF,
+		AudioRate:           opts.audioRate,
 	})
 	progress.Done()
 	if err != nil {

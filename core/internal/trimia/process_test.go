@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"romerramos/trimia/internal/deepgram"
+	"romerramos/trimia/internal/transcription"
 	"romerramos/trimia/pkg/ffmpeg"
 )
 
@@ -31,11 +31,11 @@ func (f *fakeMediaProcessor) ProbeDuration(_ context.Context, path string) (floa
 }
 
 type fakeTranscriber struct {
-	opts     deepgram.TranscribeOptions
-	response *deepgram.TranscriptionResponse
+	opts     transcription.TranscribeOptions
+	response *transcription.Transcription
 }
 
-func (f *fakeTranscriber) Transcribe(_ context.Context, opts deepgram.TranscribeOptions) (*deepgram.TranscriptionResponse, error) {
+func (f *fakeTranscriber) Transcribe(_ context.Context, opts transcription.TranscribeOptions) (*transcription.Transcription, error) {
 	f.opts = opts
 	return f.response, nil
 }
@@ -60,10 +60,11 @@ func TestProcessOrchestratesTrimPipeline(t *testing.T) {
 	}
 
 	result, err := pipeline.Run(context.Background(), ProcessOptions{
-		InputPath:      inputPath,
-		OutputPath:     outputPath,
-		DeepgramAPIKey: "test-key",
-		Overwrite:      true,
+		InputPath:           inputPath,
+		OutputPath:          outputPath,
+		Transcriber:         transcriber,
+		TranscriberProvider: transcription.ProviderDeepgram,
+		Overwrite:           true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -147,12 +148,13 @@ func TestProcessUsesExplicitTimingOptions(t *testing.T) {
 	}
 
 	_, err := pipeline.Run(context.Background(), ProcessOptions{
-		InputPath:      inputPath,
-		OutputPath:     outputPath,
-		DeepgramAPIKey: "test-key",
-		PreRoll:        &preRoll,
-		PostRoll:       &postRoll,
-		MergeGap:       &mergeGap,
+		InputPath:           inputPath,
+		OutputPath:          outputPath,
+		Transcriber:         pipeline.transcriber,
+		TranscriberProvider: transcription.ProviderDeepgram,
+		PreRoll:             &preRoll,
+		PostRoll:            &postRoll,
+		MergeGap:            &mergeGap,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -181,10 +183,11 @@ func TestProcessCanKeepTempAudio(t *testing.T) {
 	}
 
 	result, err := pipeline.Run(context.Background(), ProcessOptions{
-		InputPath:      inputPath,
-		OutputPath:     outputPath,
-		DeepgramAPIKey: "test-key",
-		KeepTempFiles:  true,
+		InputPath:           inputPath,
+		OutputPath:          outputPath,
+		Transcriber:         pipeline.transcriber,
+		TranscriberProvider: transcription.ProviderDeepgram,
+		KeepTempFiles:       true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -200,7 +203,7 @@ func TestProcessCanKeepTempAudio(t *testing.T) {
 	}
 }
 
-func TestProcessRequiresAPIKey(t *testing.T) {
+func TestProcessRequiresTranscriber(t *testing.T) {
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "input.mp4")
 	if err := os.WriteFile(inputPath, []byte("video"), 0644); err != nil {
@@ -228,13 +231,14 @@ func TestProcessFailsWhenNoSpeechSegmentsFound(t *testing.T) {
 		mediaProcessor: &fakeMediaProcessor{durations: map[string]float64{
 			inputPath: 10,
 		}},
-		transcriber: &fakeTranscriber{response: &deepgram.TranscriptionResponse{}},
+		transcriber: &fakeTranscriber{response: &transcription.Transcription{Provider: transcription.ProviderDeepgram}},
 	}
 
 	_, err := pipeline.Run(context.Background(), ProcessOptions{
-		InputPath:      inputPath,
-		OutputPath:     outputPath,
-		DeepgramAPIKey: "test-key",
+		InputPath:           inputPath,
+		OutputPath:          outputPath,
+		Transcriber:         pipeline.transcriber,
+		TranscriberProvider: transcription.ProviderDeepgram,
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -249,27 +253,25 @@ func TestDefaultOutputPath(t *testing.T) {
 	}
 }
 
-func transcriptionResponseWithWords() *deepgram.TranscriptionResponse {
-	words := []deepgram.Word{
+func transcriptionResponseWithWords() *transcription.Transcription {
+	words := []transcription.Word{
 		{Word: "um", PunctuatedWord: "um", Start: 0.1, End: 0.2, Confidence: 0.99},
 		{Word: "hello", PunctuatedWord: "Hello", Start: 0.3, End: 0.7, Confidence: 0.98},
 		{Word: "world", PunctuatedWord: "world.", Start: 0.8, End: 1.2, Confidence: 0.97},
 	}
+	cleanWords := transcription.NonFillerWords(words)
 
-	return &deepgram.TranscriptionResponse{
-		Results: deepgram.Results{
-			Channels: []deepgram.Channel{{
-				Alternatives: []deepgram.Alternative{{
-					Transcript: "um Hello world.",
-					Words:      words,
-				}},
-			}},
-			Utterances: []deepgram.Utterance{{
-				Start:      0.1,
-				End:        1.2,
-				Transcript: "um Hello world.",
-				Words:      words,
-			}},
-		},
+	return &transcription.Transcription{
+		Provider:           transcription.ProviderDeepgram,
+		OriginalTranscript: "um Hello world.",
+		CleanTranscript:    transcription.JoinWords(cleanWords),
+		Words:              words,
+		FillerWords:        transcription.FillerWords(words),
+		Segments: []transcription.Segment{{
+			Text:  transcription.JoinWords(cleanWords),
+			Start: cleanWords[0].Start,
+			End:   cleanWords[len(cleanWords)-1].End,
+			Words: cleanWords,
+		}},
 	}
 }

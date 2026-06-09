@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"romerramos/trimia/internal/transcription"
 	"romerramos/trimia/internal/trimia"
 )
 
@@ -99,18 +100,18 @@ type jobSnapshot struct {
 }
 
 type analyzeOptionsSnapshot struct {
-	InputPath         string   `json:"inputPath"`
-	AudioPath         string   `json:"audioPath,omitempty"`
-	DeepgramAPIKey    string   `json:"-"`
-	RemoveSilence     bool     `json:"removeSilence"`
-	RemoveFillerWords bool     `json:"removeFillerWords"`
-	Language          string   `json:"language"`
-	DetectLanguage    bool     `json:"detectLanguage"`
-	PreRoll           *float64 `json:"preRoll"`
-	PostRoll          *float64 `json:"postRoll"`
-	MergeGap          *float64 `json:"mergeGap"`
-	KeepTempFiles     bool     `json:"keepTempFiles"`
-	LogDir            string   `json:"logDir"`
+	InputPath           string   `json:"inputPath"`
+	AudioPath           string   `json:"audioPath,omitempty"`
+	TranscriberProvider string   `json:"transcriberProvider,omitempty"`
+	RemoveSilence       bool     `json:"removeSilence"`
+	RemoveFillerWords   bool     `json:"removeFillerWords"`
+	Language            string   `json:"language"`
+	DetectLanguage      bool     `json:"detectLanguage"`
+	PreRoll             *float64 `json:"preRoll"`
+	PostRoll            *float64 `json:"postRoll"`
+	MergeGap            *float64 `json:"mergeGap"`
+	KeepTempFiles       bool     `json:"keepTempFiles"`
+	LogDir              string   `json:"logDir"`
 }
 
 type renderSnapshot struct {
@@ -195,17 +196,18 @@ func snapshotJob(job *jobRecord) *jobSnapshot {
 		Phase:    job.Phase,
 		Progress: job.Progress,
 		Options: analyzeOptionsSnapshot{
-			InputPath:         job.Options.InputPath,
-			AudioPath:         job.Options.AudioPath,
-			RemoveSilence:     job.Options.RemoveSilence,
-			RemoveFillerWords: job.Options.RemoveFillerWords,
-			Language:          job.Options.Language,
-			DetectLanguage:    job.Options.DetectLanguage,
-			PreRoll:           job.Options.PreRoll,
-			PostRoll:          job.Options.PostRoll,
-			MergeGap:          job.Options.MergeGap,
-			KeepTempFiles:     job.Options.KeepTempFiles,
-			LogDir:            job.Options.LogDir,
+			InputPath:           job.Options.InputPath,
+			AudioPath:           job.Options.AudioPath,
+			TranscriberProvider: string(job.Options.TranscriberProvider),
+			RemoveSilence:       job.Options.RemoveSilence,
+			RemoveFillerWords:   job.Options.RemoveFillerWords,
+			Language:            job.Options.Language,
+			DetectLanguage:      job.Options.DetectLanguage,
+			PreRoll:             job.Options.PreRoll,
+			PostRoll:            job.Options.PostRoll,
+			MergeGap:            job.Options.MergeGap,
+			KeepTempFiles:       job.Options.KeepTempFiles,
+			LogDir:              job.Options.LogDir,
 		},
 		Analysis:  job.Analysis,
 		Segments:  job.Segments,
@@ -225,17 +227,18 @@ func (j *jobSnapshot) restore() *jobRecord {
 		Phase:    j.Phase,
 		Progress: j.Progress,
 		Options: trimia.AnalyzeOptions{
-			InputPath:         j.Options.InputPath,
-			AudioPath:         j.Options.AudioPath,
-			RemoveSilence:     j.Options.RemoveSilence,
-			RemoveFillerWords: j.Options.RemoveFillerWords,
-			Language:          j.Options.Language,
-			DetectLanguage:    j.Options.DetectLanguage,
-			PreRoll:           j.Options.PreRoll,
-			PostRoll:          j.Options.PostRoll,
-			MergeGap:          j.Options.MergeGap,
-			KeepTempFiles:     j.Options.KeepTempFiles,
-			LogDir:            j.Options.LogDir,
+			InputPath:           j.Options.InputPath,
+			AudioPath:           j.Options.AudioPath,
+			TranscriberProvider: restoredTranscriberProvider(j.Options.TranscriberProvider),
+			RemoveSilence:       j.Options.RemoveSilence,
+			RemoveFillerWords:   j.Options.RemoveFillerWords,
+			Language:            j.Options.Language,
+			DetectLanguage:      j.Options.DetectLanguage,
+			PreRoll:             j.Options.PreRoll,
+			PostRoll:            j.Options.PostRoll,
+			MergeGap:            j.Options.MergeGap,
+			KeepTempFiles:       j.Options.KeepTempFiles,
+			LogDir:              j.Options.LogDir,
 		},
 		Analysis:  j.Analysis,
 		Segments:  j.Segments,
@@ -245,6 +248,14 @@ func (j *jobSnapshot) restore() *jobRecord {
 		CreatedAt: j.CreatedAt,
 		UpdatedAt: j.UpdatedAt,
 	}
+}
+
+func restoredTranscriberProvider(provider string) transcription.Provider {
+	if provider == "" {
+		return transcription.ProviderDeepgram
+	}
+
+	return transcription.Provider(provider)
 }
 
 func snapshotRender(render *renderRecord) *renderSnapshot {

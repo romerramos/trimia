@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"romerramos/trimia/internal/deepgram"
 	"romerramos/trimia/internal/trimia"
 )
 
@@ -36,15 +37,15 @@ func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
 		Phase:    "waiting",
 		Progress: 0,
 		Options: trimia.AnalyzeOptions{
-			InputPath:         media.Path,
-			DeepgramAPIKey:    s.apiKey,
-			RemoveSilence:     req.Options.RemoveSilence,
-			RemoveFillerWords: req.Options.RemoveFillerWords,
-			Language:          req.Options.Language,
-			DetectLanguage:    req.Options.DetectLanguage,
-			PreRoll:           req.Options.PreRoll,
-			PostRoll:          req.Options.PostRoll,
-			MergeGap:          req.Options.MergeGap,
+			InputPath:           media.Path,
+			TranscriberProvider: deepgram.Provider,
+			RemoveSilence:       req.Options.RemoveSilence,
+			RemoveFillerWords:   req.Options.RemoveFillerWords,
+			Language:            req.Options.Language,
+			DetectLanguage:      req.Options.DetectLanguage,
+			PreRoll:             req.Options.PreRoll,
+			PostRoll:            req.Options.PostRoll,
+			MergeGap:            req.Options.MergeGap,
 		},
 		Version:   0,
 		CreatedAt: now,
@@ -110,7 +111,7 @@ func (s *Server) runAnalysis(ctx context.Context, jobID string) {
 
 	segments := make([]segmentResponse, 0, len(result.Segments))
 	for _, segment := range result.Segments {
-		segments = append(segments, segmentToResponse(segment, "deepgram"))
+		segments = append(segments, segmentToResponse(segment, string(result.TranscriberProvider)))
 	}
 
 	s.store.mu.Lock()
@@ -139,7 +140,7 @@ func (s *Server) jobAnalyzeOptions(jobID string, progress trimia.ProgressFunc) t
 	defer s.store.mu.RUnlock()
 	job := s.store.jobs[jobID]
 	opts := job.Options
-	opts.DeepgramAPIKey = s.apiKey
+	opts.Transcriber = deepgram.NewTranscriber(s.apiKey)
 	if media := s.store.media[job.MediaID]; media != nil && media.AudioStatus == "audio_ready" {
 		opts.AudioPath = media.AudioPath
 	}

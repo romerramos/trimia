@@ -1,7 +1,7 @@
 package api
 
 import (
-	"romerramos/trimia/internal/deepgram"
+	"romerramos/trimia/internal/transcription"
 	"romerramos/trimia/internal/trimia"
 )
 
@@ -17,8 +17,8 @@ func responseToSegment(segment segmentResponse) trimia.Segment {
 	return trimia.Segment{ID: segment.ID, Start: segment.Start, End: segment.End, Text: segment.Text, Included: segment.Included}
 }
 
-func wordToResponse(word deepgram.Word) wordResponse {
-	return wordResponse{Word: word.Word, PunctuatedWord: word.PunctuatedWord, Start: word.Start, End: word.End, Confidence: word.Confidence, Filler: deepgram.IsFillerWord(word.Word)}
+func wordToResponse(word transcription.Word) wordResponse {
+	return wordResponse{Word: word.Word, PunctuatedWord: word.PunctuatedWord, Start: word.Start, End: word.End, Confidence: word.Confidence, Filler: transcription.IsFillerWord(word.Word)}
 }
 
 func fillerWords(segments []segmentResponse) []wordResponse {

@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"romerramos/trimia/internal/deepgram"
+	"romerramos/trimia/internal/transcription"
 	"romerramos/trimia/pkg/ffmpeg"
 )
 
@@ -23,7 +23,8 @@ type ProcessOptions struct {
 	InputPath  string
 	OutputPath string
 
-	DeepgramAPIKey string
+	Transcriber         transcription.Transcriber
+	TranscriberProvider transcription.Provider
 
 	RemoveSilence     bool
 	RemoveFillerWords bool
@@ -53,14 +54,15 @@ type Segment struct {
 	End      float64
 	Text     string
 	Included bool
-	Words    []deepgram.Word
+	Words    []transcription.Word
 }
 
 type AnalyzeOptions struct {
 	InputPath string
 	AudioPath string
 
-	DeepgramAPIKey string
+	Transcriber         transcription.Transcriber
+	TranscriberProvider transcription.Provider
 
 	RemoveSilence     bool
 	RemoveFillerWords bool
@@ -78,13 +80,14 @@ type AnalyzeOptions struct {
 }
 
 type AnalysisResult struct {
-	InputPath string
-	AudioPath string
+	InputPath           string
+	AudioPath           string
+	TranscriberProvider transcription.Provider
 
 	OriginalTranscript string
 	CleanTranscript    string
 
-	FillerWords []deepgram.Word
+	FillerWords []transcription.Word
 	Segments    []Segment
 
 	InputDurationSeconds           float64
@@ -123,14 +126,15 @@ type RenderResult struct {
 }
 
 type ProcessResult struct {
-	InputPath  string
-	OutputPath string
-	AudioPath  string
+	InputPath           string
+	OutputPath          string
+	AudioPath           string
+	TranscriberProvider transcription.Provider
 
 	OriginalTranscript string
 	CleanTranscript    string
 
-	FillerWords []deepgram.Word
+	FillerWords []transcription.Word
 	Segments    []Segment
 
 	InputDurationSeconds  float64
@@ -140,15 +144,15 @@ type ProcessResult struct {
 }
 
 func Process(ctx context.Context, opts ProcessOptions) (*ProcessResult, error) {
-	return newPipeline(opts.DeepgramAPIKey).Run(ctx, opts)
+	return newPipeline(opts.Transcriber).Run(ctx, opts)
 }
 
 func Analyze(ctx context.Context, opts AnalyzeOptions) (*AnalysisResult, error) {
-	return newPipeline(opts.DeepgramAPIKey).Analyze(ctx, opts)
+	return newPipeline(opts.Transcriber).Analyze(ctx, opts)
 }
 
 func Render(ctx context.Context, opts RenderOptions) (*RenderResult, error) {
-	return newPipeline("").Render(ctx, opts)
+	return newPipeline(nil).Render(ctx, opts)
 }
 
 func validateProcessOptions(opts ProcessOptions) error {
@@ -160,8 +164,8 @@ func validateProcessOptions(opts ProcessOptions) error {
 		return errors.New("output path is required")
 	}
 
-	if opts.DeepgramAPIKey == "" {
-		return errors.New("deepgram api key is required")
+	if opts.Transcriber == nil {
+		return errors.New("transcriber is required")
 	}
 
 	if _, err := os.Stat(opts.InputPath); err != nil {
@@ -176,8 +180,8 @@ func validateAnalyzeOptions(opts AnalyzeOptions) error {
 		return errors.New("input path is required")
 	}
 
-	if opts.DeepgramAPIKey == "" {
-		return errors.New("deepgram api key is required")
+	if opts.Transcriber == nil {
+		return errors.New("transcriber is required")
 	}
 
 	if _, err := os.Stat(opts.InputPath); err != nil {
@@ -209,18 +213,19 @@ func validateRenderOptions(opts RenderOptions) error {
 
 func processToAnalyzeOptions(opts ProcessOptions) AnalyzeOptions {
 	return AnalyzeOptions{
-		InputPath:         opts.InputPath,
-		DeepgramAPIKey:    opts.DeepgramAPIKey,
-		RemoveSilence:     opts.RemoveSilence,
-		RemoveFillerWords: opts.RemoveFillerWords,
-		Language:          opts.Language,
-		DetectLanguage:    opts.DetectLanguage,
-		PreRoll:           opts.PreRoll,
-		PostRoll:          opts.PostRoll,
-		MergeGap:          opts.MergeGap,
-		KeepTempFiles:     opts.KeepTempFiles,
-		LogDir:            opts.LogDir,
-		Progress:          opts.Progress,
+		InputPath:           opts.InputPath,
+		Transcriber:         opts.Transcriber,
+		TranscriberProvider: opts.TranscriberProvider,
+		RemoveSilence:       opts.RemoveSilence,
+		RemoveFillerWords:   opts.RemoveFillerWords,
+		Language:            opts.Language,
+		DetectLanguage:      opts.DetectLanguage,
+		PreRoll:             opts.PreRoll,
+		PostRoll:            opts.PostRoll,
+		MergeGap:            opts.MergeGap,
+		KeepTempFiles:       opts.KeepTempFiles,
+		LogDir:              opts.LogDir,
+		Progress:            opts.Progress,
 	}
 }
 
@@ -243,6 +248,8 @@ func processToRenderOptions(opts ProcessOptions, segments []Segment) RenderOptio
 }
 
 func applyDefaults(opts ProcessOptions) ProcessOptions {
+	opts.TranscriberProvider = transcription.ProviderOrDefault(opts.TranscriberProvider)
+
 	if !opts.RemoveSilence && !opts.RemoveFillerWords {
 		opts.RemoveSilence = true
 		opts.RemoveFillerWords = true
@@ -281,7 +288,7 @@ func createTempAudioPath() (string, error) {
 	return path, nil
 }
 
-func toSegments(cleanSegments []deepgram.CleanSegment) []Segment {
+func toSegments(cleanSegments []transcription.Segment) []Segment {
 	segments := make([]Segment, 0, len(cleanSegments))
 	for i, segment := range cleanSegments {
 		segments = append(segments, Segment{

@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"romerramos/trimia/internal/deepgram"
+	"romerramos/trimia/internal/transcription"
 	"romerramos/trimia/pkg/ffmpeg"
 )
 
@@ -20,22 +20,18 @@ type mediaProcessor interface {
 	ProbeDuration(context.Context, string) (float64, error)
 }
 
-type transcriber interface {
-	Transcribe(context.Context, deepgram.TranscribeOptions) (*deepgram.TranscriptionResponse, error)
-}
-
 type pipeline struct {
 	mediaProcessor mediaProcessor
-	transcriber    transcriber
+	transcriber    transcription.Transcriber
 	logWriter      io.Writer
 	logger         *log.Logger
 	Progress       ProgressFunc
 }
 
-func newPipeline(apiKey string) pipeline {
+func newPipeline(transcriber transcription.Transcriber) pipeline {
 	return pipeline{
 		mediaProcessor: ffmpeg.NewClient(),
-		transcriber:    deepgram.NewClient(apiKey),
+		transcriber:    transcriber,
 	}
 }
 
@@ -58,6 +54,7 @@ func (p pipeline) Run(ctx context.Context, opts ProcessOptions) (*ProcessResult,
 		InputPath:             opts.InputPath,
 		OutputPath:            opts.OutputPath,
 		AudioPath:             analysis.AudioPath,
+		TranscriberProvider:   analysis.TranscriberProvider,
 		OriginalTranscript:    analysis.OriginalTranscript,
 		CleanTranscript:       analysis.CleanTranscript,
 		FillerWords:           analysis.FillerWords,
@@ -88,12 +85,13 @@ func (p pipeline) Analyze(ctx context.Context, opts AnalyzeOptions) (*AnalysisRe
 	p.Progress = opts.Progress
 
 	processOpts := applyDefaults(ProcessOptions{
-		InputPath:         opts.InputPath,
-		DeepgramAPIKey:    opts.DeepgramAPIKey,
-		RemoveSilence:     opts.RemoveSilence,
-		RemoveFillerWords: opts.RemoveFillerWords,
-		Language:          opts.Language,
-		DetectLanguage:    opts.DetectLanguage,
+		InputPath:           opts.InputPath,
+		Transcriber:         opts.Transcriber,
+		TranscriberProvider: opts.TranscriberProvider,
+		RemoveSilence:       opts.RemoveSilence,
+		RemoveFillerWords:   opts.RemoveFillerWords,
+		Language:            opts.Language,
+		DetectLanguage:      opts.DetectLanguage,
 	})
 	preRoll := valueOrDefault(opts.PreRoll, defaultPreRoll)
 	postRoll := valueOrDefault(opts.PostRoll, defaultPostRoll)
@@ -140,12 +138,11 @@ func (p pipeline) Analyze(ctx context.Context, opts AnalyzeOptions) (*AnalysisRe
 		p.progress("Extracting audio", 100)
 	}
 
-	p.logf("transcribe: starting Deepgram request")
-	stopTranscribeProgress := p.startIndeterminateProgress("Transcribing with Deepgram")
-	transcription, err := p.transcriber.Transcribe(ctx, deepgram.TranscribeOptions{
+	p.logf("transcribe: starting provider=%s", processOpts.TranscriberProvider)
+	stopTranscribeProgress := p.startIndeterminateProgress("Transcribing")
+	transcript, err := p.transcriber.Transcribe(ctx, transcription.TranscribeOptions{
 		AudioPath:      audioPath,
 		ContentType:    "audio/mp3",
-		Model:          "nova-3",
 		Language:       processOpts.Language,
 		DetectLanguage: processOpts.DetectLanguage,
 		FillerWords:    processOpts.RemoveFillerWords,
@@ -156,13 +153,13 @@ func (p pipeline) Analyze(ctx context.Context, opts AnalyzeOptions) (*AnalysisRe
 	if err != nil {
 		return nil, err
 	}
-	p.logf("transcribe: completed request_id=%s duration=%.2fs", transcription.Metadata.RequestID, transcription.Metadata.Duration)
+	p.logf("transcribe: completed provider=%s request_id=%s duration=%.2fs", transcript.Provider, transcript.Metadata.RequestID, transcript.Metadata.Duration)
 
-	cleanSegments := transcription.CleanSegments()
+	cleanSegments := transcript.Segments
 	if len(cleanSegments) == 0 {
 		return nil, errors.New("no speech segments found")
 	}
-	p.logf("segments: clean=%d filler_words=%d", len(cleanSegments), len(transcription.FillerWords()))
+	p.logf("segments: clean=%d filler_words=%d", len(cleanSegments), len(transcript.FillerWords))
 
 	segments := toSegments(cleanSegments)
 	estimatedOutputDuration := estimateOutputDuration(segments, preRoll, postRoll, mergeGap)
@@ -181,9 +178,10 @@ func (p pipeline) Analyze(ctx context.Context, opts AnalyzeOptions) (*AnalysisRe
 	return &AnalysisResult{
 		InputPath:                      opts.InputPath,
 		AudioPath:                      resultAudioPath,
-		OriginalTranscript:             transcription.Transcript(),
-		CleanTranscript:                transcription.CleanTranscript(),
-		FillerWords:                    transcription.FillerWords(),
+		TranscriberProvider:            transcript.Provider,
+		OriginalTranscript:             transcript.OriginalTranscript,
+		CleanTranscript:                transcript.CleanTranscript,
+		FillerWords:                    transcript.FillerWords,
 		Segments:                       segments,
 		InputDurationSeconds:           inputDuration,
 		EstimatedOutputDurationSeconds: estimatedOutputDuration,
