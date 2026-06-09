@@ -10,7 +10,6 @@
 	import {
 		nextPlaybackTick,
 		playbackStart,
-		previewTimeFromSourceTime,
 		stopTime
 	} from '$lib/components/studio/video-preview/helpers';
 	import { isIndeterminate, isProcessing, isReady } from '$lib/concepts/core/service';
@@ -49,10 +48,9 @@
 	const indeterminate = $derived(isIndeterminate(data.job));
 	const timelineItems = $derived(itemsFromSegments(localSegments, duration, editedSegmentIds));
 	const acceptedCount = $derived(videoSegments.includedCount(localSegments));
-	const removedCount = $derived(timelineItems.filter((item) => !item.included).length);
 	const previewRanges = $derived(videoSegments.previewRanges(localSegments));
-	const previewDuration = $derived(videoSegments.previewDuration(previewRanges));
-	const currentPreviewTime = $derived(previewTimeFromSourceTime(previewRanges, currentSourceTime));
+	const trimmedDuration = $derived(videoSegments.previewDuration(previewRanges));
+	const removedDuration = $derived(Math.max(0, duration - trimmedDuration));
 	const transcriptWords = $derived(wordsFromSegments(localSegments));
 	const currentActiveWordId = $derived(activeWordId(transcriptWords, currentSourceTime));
 
@@ -310,8 +308,8 @@
 				{ready}
 				disabled={previewRanges.length === 0}
 				playing={playingPreview}
-				{currentPreviewTime}
-				{previewDuration}
+				{currentSourceTime}
+				{duration}
 				onTimeUpdate={(time) => (currentSourceTime = time)}
 				onToggle={togglePreview}
 				onStop={stopPreview}
@@ -330,8 +328,9 @@
 			waveform={data.waveform}
 			{previewRanges}
 			{duration}
+			{trimmedDuration}
+			{removedDuration}
 			{acceptedCount}
-			{removedCount}
 			{currentSourceTime}
 			{playingPreview}
 			{savingSegmentId}

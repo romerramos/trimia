@@ -17,8 +17,9 @@
 		waveform,
 		previewRanges,
 		duration,
+		trimmedDuration,
+		removedDuration,
 		acceptedCount,
-		removedCount,
 		currentSourceTime,
 		playingPreview,
 		savingSegmentId,
@@ -32,8 +33,9 @@
 		waveform?: core.Waveform;
 		previewRanges: segments.PreviewRange[];
 		duration: number;
+		trimmedDuration: number;
+		removedDuration: number;
 		acceptedCount: number;
-		removedCount: number;
 		currentSourceTime: number;
 		playingPreview: boolean;
 		savingSegmentId: string;
@@ -127,9 +129,8 @@
 		{#if items.length > 0}
 			<div class="flex flex-wrap items-center gap-3 text-sm">
 				<div class="flex flex-wrap gap-3 text-muted-foreground">
-					<span>{acceptedCount} accepted</span>
-					<span>{removedCount} removed gaps</span>
-					<span>{formatTime(duration)} source</span>
+					<span>{formatTime(removedDuration)} trimmed</span>
+					<span>{formatTime(trimmedDuration)} final</span>
 				</div>
 				<TimelineZoomControl {zoom} onChange={setZoom} />
 			</div>

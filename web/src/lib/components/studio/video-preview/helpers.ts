@@ -10,22 +10,6 @@ export function findPreviewIndex(ranges: segments.PreviewRange[], time: number) 
 	return next === -1 ? 0 : next;
 }
 
-export function previewTimeFromSourceTime(ranges: segments.PreviewRange[], sourceTime: number) {
-	let elapsed = 0;
-
-	for (const range of ranges) {
-		if (sourceTime < range.start) {
-			return elapsed;
-		}
-		if (sourceTime <= range.end) {
-			return elapsed + sourceTime - range.start;
-		}
-		elapsed += range.end - range.start;
-	}
-
-	return elapsed;
-}
-
 export function playbackStart(ranges: segments.PreviewRange[], currentTime: number) {
 	const index = findPreviewIndex(ranges, currentTime);
 	const range = ranges[index];

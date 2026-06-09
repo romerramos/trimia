@@ -8,8 +8,8 @@
 		ready,
 		disabled,
 		playing,
-		currentPreviewTime,
-		previewDuration,
+		currentSourceTime,
+		duration,
 		onTimeUpdate,
 		onToggle,
 		onStop
@@ -19,8 +19,8 @@
 		ready: boolean;
 		disabled: boolean;
 		playing: boolean;
-		currentPreviewTime: number;
-		previewDuration: number;
+		currentSourceTime: number;
+		duration: number;
 		onTimeUpdate: (time: number) => void;
 		onToggle: () => void;
 		onStop: () => void;
@@ -69,7 +69,7 @@
 			</div>
 
 			<div class="font-mono text-sm text-zinc-300 tabular-nums">
-				{formatTime(currentPreviewTime)} / {formatTime(previewDuration)}
+				{formatTime(currentSourceTime)} / {formatTime(duration)}
 			</div>
 		</div>
 	</div>

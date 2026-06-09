@@ -8,6 +8,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import type * as core from '$lib/concepts/core';
+	import { onMount } from 'svelte';
 	import type { PageServerData } from './$types';
 
 	let { data }: { data: PageServerData } = $props();
@@ -19,6 +20,11 @@
 	let uploadStatus = $state('');
 	let createProxy = $state(false);
 	let media = $state<core.Media>();
+	let browserFetch: typeof fetch;
+
+	onMount(() => {
+		browserFetch = window.fetch.bind(window);
+	});
 
 	const formatBytes = (bytes: number) => {
 		const units = ['B', 'KB', 'MB', 'GB'];
@@ -139,7 +145,7 @@
 	};
 
 	const createJob = async (jobsUrl: string, mediaId: string) => {
-		const response = await fetch(jobsUrl, {
+		const response = await browserFetch(jobsUrl, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
@@ -160,7 +166,7 @@
 	};
 
 	const fetchMedia = async (mediaUrl: string, mediaId: string) => {
-		const response = await fetch(`${mediaUrl.replace(/\/$/, '')}/${mediaId}`);
+		const response = await browserFetch(`${mediaUrl.replace(/\/$/, '')}/${mediaId}`);
 		if (!response.ok) {
 			throw new Error((await response.text()) || `Trimia returned ${response.status}`);
 		}
