@@ -245,6 +245,45 @@ func TestProcessFailsWhenNoSpeechSegmentsFound(t *testing.T) {
 	}
 }
 
+func TestToSegmentsNormalizesOverlappingAdjacentSegments(t *testing.T) {
+	segments := toSegments([]transcription.Segment{
+		{Start: 10, End: 12, Text: "first"},
+		{Start: 11.5, End: 13, Text: "second"},
+		{Start: 13.5, End: 14, Text: "third"},
+	})
+
+	if len(segments) != 3 {
+		t.Fatalf("segments len = %d, want 3: %#v", len(segments), segments)
+	}
+
+	if segments[0].Start != 10 || segments[0].End != 11.5 {
+		t.Fatalf("first segment = %#v, want start 10 end 11.5", segments[0])
+	}
+
+	if segments[1].Start != 11.5 || segments[1].End != 13 {
+		t.Fatalf("second segment = %#v, want start 11.5 end 13", segments[1])
+	}
+
+	if segments[2].Start != 13.5 || segments[2].End != 14 {
+		t.Fatalf("third segment = %#v, want start 13.5 end 14", segments[2])
+	}
+}
+
+func TestToSegmentsDropsSegmentsCoveredByFollowingSegment(t *testing.T) {
+	segments := toSegments([]transcription.Segment{
+		{Start: 10, End: 12, Text: "covered"},
+		{Start: 10, End: 13, Text: "keeper"},
+	})
+
+	if len(segments) != 1 {
+		t.Fatalf("segments len = %d, want 1: %#v", len(segments), segments)
+	}
+
+	if segments[0].Text != "keeper" || segments[0].Start != 10 || segments[0].End != 13 {
+		t.Fatalf("segment = %#v, want keeper from 10 to 13", segments[0])
+	}
+}
+
 func TestDefaultOutputPath(t *testing.T) {
 	got := DefaultOutputPath("/videos/demo.mp4")
 	want := "/videos/demo_trimia.mp4"

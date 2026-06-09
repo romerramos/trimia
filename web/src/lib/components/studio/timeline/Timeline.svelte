@@ -44,7 +44,7 @@
 		onRefresh: () => void;
 	} = $props();
 
-	let zoom = $state<TimelineZoom>('fit');
+	let zoom = $state<TimelineZoom>('playhead');
 	let timelineElement = $state<HTMLDivElement>();
 	let scrollElement = $state<HTMLDivElement>();
 	let draggingPlayhead = $state(false);

@@ -271,7 +271,7 @@ func valueOrDefault(value *float64, fallback float64) float64 {
 }
 
 func createTempAudioPath() (string, error) {
-	file, err := os.CreateTemp("", "trimia-audio-*.mp3")
+	file, err := os.CreateTemp("", "trimia-audio-*.wav")
 	if err != nil {
 		return "", fmt.Errorf("create temp audio file: %w", err)
 	}
@@ -301,7 +301,39 @@ func toSegments(cleanSegments []transcription.Segment) []Segment {
 		})
 	}
 
-	return segments
+	return normalizeSegments(segments)
+
+}
+
+func normalizeSegments(segments []Segment) []Segment {
+	if len(segments) < 2 {
+		return segments
+	}
+
+	sort.SliceStable(segments, func(i, j int) bool {
+		return segments[i].Start < segments[j].Start
+	})
+
+	normalized := make([]Segment, 0, len(segments))
+	for _, segment := range segments {
+		if segment.End <= segment.Start {
+			continue
+		}
+
+		if len(normalized) > 0 {
+			previous := &normalized[len(normalized)-1]
+			if segment.Start < previous.End {
+				previous.End = segment.Start
+			}
+			if previous.End <= previous.Start {
+				normalized = normalized[:len(normalized)-1]
+			}
+		}
+
+		normalized = append(normalized, segment)
+	}
+
+	return normalized
 }
 
 func toFFmpegSegments(segments []Segment) []ffmpeg.Segment {

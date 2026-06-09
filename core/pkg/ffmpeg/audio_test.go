@@ -10,7 +10,7 @@ import (
 func TestExtractAudioArgs(t *testing.T) {
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "input.mov")
-	outputPath := filepath.Join(tmpDir, "audio", "output.mp3")
+	outputPath := filepath.Join(tmpDir, "audio", "output.wav")
 
 	if err := os.WriteFile(inputPath, []byte("video"), 0644); err != nil {
 		t.Fatal(err)
@@ -33,8 +33,9 @@ func TestExtractAudioArgs(t *testing.T) {
 		"-i", inputPath,
 		"-vn",
 		"-map", "a:0",
-		"-c:a", "libmp3lame",
-		"-b:a", defaultAudioBitrate,
+		"-ac", "1",
+		"-ar", "16000",
+		"-c:a", "pcm_s16le",
 		outputPath,
 	}
 
@@ -44,7 +45,7 @@ func TestExtractAudioArgs(t *testing.T) {
 }
 
 func TestExtractAudioArgsRequiresInputPath(t *testing.T) {
-	_, err := extractAudioArgs(ExtractAudioOptions{OutputPath: "output.mp3"})
+	_, err := extractAudioArgs(ExtractAudioOptions{OutputPath: "output.wav"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -53,7 +54,7 @@ func TestExtractAudioArgsRequiresInputPath(t *testing.T) {
 func TestExtractAudioArgsRefusesExistingOutputWithoutOverwrite(t *testing.T) {
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "input.mov")
-	outputPath := filepath.Join(tmpDir, "output.mp3")
+	outputPath := filepath.Join(tmpDir, "output.wav")
 
 	if err := os.WriteFile(inputPath, []byte("video"), 0644); err != nil {
 		t.Fatal(err)

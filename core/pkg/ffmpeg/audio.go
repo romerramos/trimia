@@ -11,12 +11,9 @@ import (
 	"strings"
 )
 
-const defaultAudioBitrate = "192k"
-
 type ExtractAudioOptions struct {
 	InputPath  string
 	OutputPath string
-	Bitrate    string
 	Overwrite  bool
 	LogWriter  io.Writer
 	Progress   ProgressFunc
@@ -90,11 +87,6 @@ func extractAudioArgs(opts ExtractAudioOptions) ([]string, error) {
 		return nil, fmt.Errorf("create output directory: %w", err)
 	}
 
-	bitrate := opts.Bitrate
-	if bitrate == "" {
-		bitrate = defaultAudioBitrate
-	}
-
 	args := []string{
 		"-hide_banner",
 		"-nostdin",
@@ -112,8 +104,9 @@ func extractAudioArgs(opts ExtractAudioOptions) ([]string, error) {
 		"-i", opts.InputPath,
 		"-vn",
 		"-map", "a:0",
-		"-c:a", "libmp3lame",
-		"-b:a", bitrate,
+		"-ac", "1",
+		"-ar", "16000",
+		"-c:a", "pcm_s16le",
 		opts.OutputPath,
 	)
 

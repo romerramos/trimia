@@ -99,8 +99,9 @@ func (s *Server) runRender(ctx context.Context, jobID string, req renderRequest)
 	}
 	outputPath := filepath.Join(s.store.dataDir, "outputs", jobID+"-"+filepath.Base(filename))
 
-	renderSegments := make([]trimia.Segment, 0, len(job.Segments))
-	for _, segment := range job.Segments {
+	segments := normalizeSegmentResponses(job.Segments)
+	renderSegments := make([]trimia.Segment, 0, len(segments))
+	for _, segment := range segments {
 		renderSegments = append(renderSegments, responseToSegment(segment))
 	}
 

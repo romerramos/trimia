@@ -241,7 +241,7 @@ func (j *jobSnapshot) restore() *jobRecord {
 			LogDir:              j.Options.LogDir,
 		},
 		Analysis:  j.Analysis,
-		Segments:  j.Segments,
+		Segments:  normalizeSegmentResponses(j.Segments),
 		Version:   j.Version,
 		Error:     j.Error,
 		Render:    j.Render.restore(),
@@ -326,7 +326,7 @@ func (s *store) restoreMediaPaths() {
 			media.Path = filepath.Join(s.dataDir, "uploads", media.ID+filepath.Ext(media.Filename))
 		}
 		if media.AudioPath == "" {
-			media.AudioPath = filepath.Join(s.dataDir, "audio", media.ID+".mp3")
+			media.AudioPath = filepath.Join(s.dataDir, "audio", media.ID+".wav")
 		}
 		if media.PreviewPath == "" {
 			media.PreviewPath = filepath.Join(s.dataDir, "previews", media.ID+".mp4")

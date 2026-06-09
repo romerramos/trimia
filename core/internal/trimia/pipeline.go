@@ -142,7 +142,7 @@ func (p pipeline) Analyze(ctx context.Context, opts AnalyzeOptions) (*AnalysisRe
 	stopTranscribeProgress := p.startIndeterminateProgress("Transcribing")
 	transcript, err := p.transcriber.Transcribe(ctx, transcription.TranscribeOptions{
 		AudioPath:      audioPath,
-		ContentType:    "audio/mp3",
+		ContentType:    "audio/wav",
 		Language:       processOpts.Language,
 		DetectLanguage: processOpts.DetectLanguage,
 		FillerWords:    processOpts.RemoveFillerWords,

@@ -315,7 +315,7 @@ func TestStorePersistsMediaAndJobsAcrossServerRestart(t *testing.T) {
 		AudioStatus:     "audio_ready",
 		WaveformStatus:  "waveform_ready",
 		Path:            mediaPath,
-		AudioPath:       filepath.Join(server.AudioDir(), "med_test.mp3"),
+		AudioPath:       filepath.Join(server.AudioDir(), "med_test.wav"),
 		PreviewPath:     filepath.Join(server.PreviewsDir(), "med_test.mp4"),
 		WaveformPath:    filepath.Join(server.WaveformsDir(), "med_test.json"),
 		CreatedAt:       time.Now().UTC(),
@@ -350,5 +350,36 @@ func TestStorePersistsMediaAndJobsAcrossServerRestart(t *testing.T) {
 	}
 	if job.Version != 1 || len(job.Segments) != 1 {
 		t.Fatalf("restored job = %#v", job)
+	}
+}
+
+func TestNormalizeSegmentResponsesClampsOverlaps(t *testing.T) {
+	segments := normalizeSegmentResponses([]segmentResponse{
+		{ID: "seg_1", Start: 10, End: 12, Included: true},
+		{ID: "seg_2", Start: 11.5, End: 13, Included: true},
+	})
+
+	if len(segments) != 2 {
+		t.Fatalf("segments len = %d, want 2: %#v", len(segments), segments)
+	}
+	if segments[0].Start != 10 || segments[0].End != 11.5 {
+		t.Fatalf("first segment = %#v, want start 10 end 11.5", segments[0])
+	}
+	if segments[1].Start != 11.5 || segments[1].End != 13 {
+		t.Fatalf("second segment = %#v, want start 11.5 end 13", segments[1])
+	}
+}
+
+func TestNormalizeSegmentResponsesDropsCoveredSegments(t *testing.T) {
+	segments := normalizeSegmentResponses([]segmentResponse{
+		{ID: "seg_1", Start: 10, End: 12, Included: true},
+		{ID: "seg_2", Start: 10, End: 13, Included: true},
+	})
+
+	if len(segments) != 1 {
+		t.Fatalf("segments len = %d, want 1: %#v", len(segments), segments)
+	}
+	if segments[0].ID != "seg_2" || segments[0].Start != 10 || segments[0].End != 13 {
+		t.Fatalf("segment = %#v, want seg_2 from 10 to 13", segments[0])
 	}
 }

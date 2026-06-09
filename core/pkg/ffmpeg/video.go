@@ -516,8 +516,9 @@ func previewProxyArgs(opts PreviewProxyOptions) []string {
 
 	args = append(
 		args,
+		"-fflags", "+genpts",
 		"-i", opts.InputPath,
-		"-vf", fmt.Sprintf("scale='min(%d,iw)':-2", maxWidth),
+		"-vf", fmt.Sprintf("setpts=PTS-STARTPTS,scale='min(%d,iw)':-2", maxWidth),
 		"-c:v", defaultVideoCodec,
 		"-preset", preset,
 		"-crf", fmt.Sprintf("%d", crf),
@@ -525,6 +526,9 @@ func previewProxyArgs(opts PreviewProxyOptions) []string {
 		"-g", fmt.Sprintf("%d", gopSize),
 		"-keyint_min", fmt.Sprintf("%d", gopSize),
 		"-sc_threshold", "0",
+		"-bf", "0",
+		"-avoid_negative_ts", "make_zero",
+		"-af", "asetpts=PTS-STARTPTS",
 		"-c:a", defaultAudioCodec,
 		"-b:a", audioRate,
 		"-movflags", "+faststart",

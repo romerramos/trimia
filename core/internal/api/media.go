@@ -71,7 +71,7 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 	}
 
 	previewPath := filepath.Join(s.store.dataDir, "previews", id+".mp4")
-	audioPath := filepath.Join(s.store.dataDir, "audio", id+".mp3")
+	audioPath := filepath.Join(s.store.dataDir, "audio", id+".wav")
 	waveformPath := filepath.Join(s.store.dataDir, "waveforms", id+".json")
 	createProxy := shouldCreatePreviewProxy(r)
 	status := "ready"
