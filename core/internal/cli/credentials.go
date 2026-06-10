@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"romerramos/trimia/internal/transcription"
 
 	"github.com/zalando/go-keyring"
 	"golang.org/x/term"
@@ -14,6 +17,8 @@ import (
 
 const (
 	deepgramEnvVar      = "DEEPGRAM_API_KEY"
+	whisperCPPBinaryEnv = "TRIMIA_WHISPER_CPP_BINARY"
+	whisperCPPModelEnv  = "TRIMIA_WHISPER_CPP_MODEL"
 	deepgramKeyService  = "trimia"
 	deepgramKeyUsername = "deepgram-api-key"
 	configDirName       = ".trimia"
@@ -43,7 +48,14 @@ type credentialMetadata struct {
 }
 
 type storedConfig struct {
-	DeepgramAPIKey string `json:"deepgram_api_key"`
+	SelectedProvider string `json:"selected_provider,omitempty"`
+	DeepgramAPIKey   string `json:"deepgram_api_key,omitempty"`
+}
+
+type providerAvailability struct {
+	Provider  transcription.Provider
+	Available bool
+	Message   string
 }
 
 type saveCredentialResult struct {
@@ -133,34 +145,29 @@ func fallbackConfigPath() (string, error) {
 	return filepath.Join(home, configDirName, configFileName), nil
 }
 
-func loadFallbackDeepgramAPIKey() (string, error) {
+func loadFallbackConfig() (storedConfig, string, error) {
 	path, err := fallbackConfigPath()
 	if err != nil {
-		return "", err
+		return storedConfig{}, "", err
 	}
 
 	bytes, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", keyring.ErrNotFound
+			return storedConfig{}, path, keyring.ErrNotFound
 		}
-		return "", err
+		return storedConfig{}, path, err
 	}
 
 	var config storedConfig
 	if err := json.Unmarshal(bytes, &config); err != nil {
-		return "", fmt.Errorf("read %s: %w", path, err)
+		return storedConfig{}, path, fmt.Errorf("read %s: %w", path, err)
 	}
 
-	key := strings.TrimSpace(config.DeepgramAPIKey)
-	if key == "" {
-		return "", keyring.ErrNotFound
-	}
-
-	return key, nil
+	return config, path, nil
 }
 
-func saveFallbackDeepgramAPIKey(key string) (string, error) {
+func saveFallbackConfig(config storedConfig) (string, error) {
 	path, err := fallbackConfigPath()
 	if err != nil {
 		return "", err
@@ -173,7 +180,7 @@ func saveFallbackDeepgramAPIKey(key string) (string, error) {
 		return "", err
 	}
 
-	bytes, err := json.MarshalIndent(storedConfig{DeepgramAPIKey: key}, "", "  ")
+	bytes, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return "", err
 	}
@@ -189,13 +196,98 @@ func saveFallbackDeepgramAPIKey(key string) (string, error) {
 	return path, nil
 }
 
+func loadSelectedProvider() (transcription.Provider, error) {
+	config, _, err := loadFallbackConfig()
+	if err != nil {
+		return "", err
+	}
+
+	provider := transcription.Provider(strings.TrimSpace(config.SelectedProvider))
+	if provider == "" {
+		return "", keyring.ErrNotFound
+	}
+	if !isSupportedProvider(provider) {
+		return "", fmt.Errorf("unsupported selected provider %q", provider)
+	}
+
+	return provider, nil
+}
+
+func saveSelectedProvider(provider transcription.Provider) (string, error) {
+	if !isSupportedProvider(provider) {
+		return "", fmt.Errorf("unsupported provider %q", provider)
+	}
+
+	config, _, err := loadFallbackConfig()
+	if err != nil && !errors.Is(err, keyring.ErrNotFound) {
+		return "", err
+	}
+	config.SelectedProvider = string(provider)
+	return saveFallbackConfig(config)
+}
+
+func isSupportedProvider(provider transcription.Provider) bool {
+	switch provider {
+	case transcription.ProviderWhisperCPP, transcription.ProviderDeepgram:
+		return true
+	default:
+		return false
+	}
+}
+
+func loadFallbackDeepgramAPIKey() (string, error) {
+	config, _, err := loadFallbackConfig()
+	if err != nil {
+		return "", err
+	}
+
+	key := strings.TrimSpace(config.DeepgramAPIKey)
+	if key == "" {
+		return "", keyring.ErrNotFound
+	}
+
+	return key, nil
+}
+
+func saveFallbackDeepgramAPIKey(key string) (string, error) {
+	config, _, err := loadFallbackConfig()
+	if err != nil && !errors.Is(err, keyring.ErrNotFound) {
+		return "", err
+	}
+	config.DeepgramAPIKey = key
+
+	return saveFallbackConfig(config)
+}
+
 func deleteFallbackDeepgramAPIKey() (bool, string, error) {
 	path, err := fallbackConfigPath()
 	if err != nil {
 		return false, "", err
 	}
 
-	if err := os.Remove(path); err != nil {
+	config, _, err := loadFallbackConfig()
+	if err != nil {
+		if errors.Is(err, keyring.ErrNotFound) {
+			return false, path, nil
+		}
+		return false, path, err
+	}
+	if strings.TrimSpace(config.DeepgramAPIKey) == "" {
+		return false, path, nil
+	}
+	config.DeepgramAPIKey = ""
+
+	if strings.TrimSpace(config.SelectedProvider) == "" {
+		if err := os.Remove(path); err != nil {
+			if os.IsNotExist(err) {
+				return false, path, nil
+			}
+			return false, path, err
+		}
+		return true, path, nil
+	}
+
+	if _, err := saveFallbackConfig(config); err != nil {
 		if os.IsNotExist(err) {
 			return false, path, nil
 		}
@@ -203,6 +295,58 @@ func deleteFallbackDeepgramAPIKey() (bool, string, error) {
 	}
 
 	return true, path, nil
+}
+
+func inspectProviderAvailability() []providerAvailability {
+	return []providerAvailability{inspectWhisperCPPAvailability(), inspectDeepgramAvailability()}
+}
+
+func inspectWhisperCPPAvailability() providerAvailability {
+	binaryPath := strings.TrimSpace(os.Getenv(whisperCPPBinaryEnv))
+	if binaryPath == "" {
+		return providerAvailability{Provider: transcription.ProviderWhisperCPP, Message: fmt.Sprintf("%s is not set", whisperCPPBinaryEnv)}
+	}
+	resolvedBinary, err := exec.LookPath(binaryPath)
+	if err != nil {
+		return providerAvailability{Provider: transcription.ProviderWhisperCPP, Message: "whisper.cpp is not available on this computer/server: binary not found"}
+	}
+	info, err := os.Stat(resolvedBinary)
+	if err != nil {
+		return providerAvailability{Provider: transcription.ProviderWhisperCPP, Message: fmt.Sprintf("whisper.cpp binary: %v", err)}
+	}
+	if info.IsDir() {
+		return providerAvailability{Provider: transcription.ProviderWhisperCPP, Message: "whisper.cpp binary path is a directory"}
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		return providerAvailability{Provider: transcription.ProviderWhisperCPP, Message: "whisper.cpp binary is not executable"}
+	}
+
+	modelPath := strings.TrimSpace(os.Getenv(whisperCPPModelEnv))
+	if modelPath == "" {
+		return providerAvailability{Provider: transcription.ProviderWhisperCPP, Message: fmt.Sprintf("%s is not set", whisperCPPModelEnv)}
+	}
+	modelInfo, err := os.Stat(modelPath)
+	if err != nil {
+		return providerAvailability{Provider: transcription.ProviderWhisperCPP, Message: fmt.Sprintf("whisper.cpp model file: %v", err)}
+	}
+	if modelInfo.IsDir() {
+		return providerAvailability{Provider: transcription.ProviderWhisperCPP, Message: "whisper.cpp model path is a directory"}
+	}
+
+	return providerAvailability{Provider: transcription.ProviderWhisperCPP, Available: true, Message: "available"}
+}
+
+func inspectDeepgramAvailability() providerAvailability {
+	if strings.TrimSpace(os.Getenv(deepgramEnvVar)) != "" {
+		return providerAvailability{Provider: transcription.ProviderDeepgram, Available: true, Message: fmt.Sprintf("available through %s", deepgramEnvVar)}
+	}
+	if _, err := loadDeepgramAPIKey(); err == nil {
+		return providerAvailability{Provider: transcription.ProviderDeepgram, Available: true, Message: "available through saved API key"}
+	} else if !errors.Is(err, keyring.ErrNotFound) {
+		return providerAvailability{Provider: transcription.ProviderDeepgram, Message: err.Error()}
+	}
+
+	return providerAvailability{Provider: transcription.ProviderDeepgram, Message: "Deepgram API key is not configured"}
 }
 
 func deleteKeyringDeepgramAPIKey() (bool, error) {

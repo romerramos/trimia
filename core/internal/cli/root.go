@@ -1,15 +1,17 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	"romerramos/trimia/internal/api"
+	"romerramos/trimia/internal/transcription"
 	"romerramos/trimia/internal/trimia"
-	"romerramos/trimia/internal/whispercpp"
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
@@ -75,6 +77,7 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newConnectCommand())
 	cmd.AddCommand(newDisconnectCommand())
 	cmd.AddCommand(newConfigCommand())
+	cmd.AddCommand(newProviderCommand())
 	cmd.AddCommand(newServeCommand())
 
 	return cmd
@@ -118,15 +121,19 @@ func newServeCommand() *cobra.Command {
 				return err
 			}
 
+			resolved, err := resolveTranscriber()
+			if err != nil {
+				return err
+			}
+
 			server, err := api.NewServer(api.Options{
-				DeepgramAPIKey:       os.Getenv("DEEPGRAM_API_KEY"),
-				WhisperCPPBinaryPath: os.Getenv("TRIMIA_WHISPER_CPP_BINARY"),
-				WhisperCPPModelPath:  os.Getenv("TRIMIA_WHISPER_CPP_MODEL"),
-				DataDir:              dataDir,
-				UploadTokenSecret:    uploadTokenSecret,
-				AllowedOrigin:        allowedOrigin,
-				MaxUploadBytes:       maxUploadBytes,
-				LogFormat:            parsedLogFormat,
+				Transcriber:         resolved.Transcriber,
+				TranscriberProvider: resolved.Provider,
+				DataDir:             dataDir,
+				UploadTokenSecret:   uploadTokenSecret,
+				AllowedOrigin:       allowedOrigin,
+				MaxUploadBytes:      maxUploadBytes,
+				LogFormat:           parsedLogFormat,
 			})
 			if err != nil {
 				return err
@@ -141,7 +148,7 @@ func newServeCommand() *cobra.Command {
 			fmt.Fprintf(out, "Allowed origin: %s\n", server.AllowedOrigin())
 			fmt.Fprintf(out, "Max upload bytes: %d\n", server.MaxUploadBytes())
 			fmt.Fprintf(out, "Log format: %s\n", parsedLogFormat)
-			fmt.Fprintln(out, "Transcriber: whispercpp")
+			fmt.Fprintf(out, "Transcriber: %s\n", resolved.Provider)
 			return http.ListenAndServe(addr, server.Handler())
 		},
 	}
@@ -272,8 +279,17 @@ func newConfigCommand() *cobra.Command {
 		Short: "Show credential storage metadata",
 		Run: func(cmd *cobra.Command, args []string) {
 			metadata := inspectCredentialMetadata()
+			selectedProvider, providerErr := loadSelectedProvider()
 			out := cmd.OutOrStdout()
 
+			if providerErr == nil {
+				fmt.Fprintf(out, "Selected provider: %s\n", selectedProvider)
+			} else {
+				fmt.Fprintln(out, "Selected provider: not set")
+			}
+			for _, availability := range inspectProviderAvailability() {
+				fmt.Fprintf(out, "Provider %s: %s\n", availability.Provider, availability.Message)
+			}
 			fmt.Fprintf(out, "Credential source: %s\n", metadata.Source)
 			fmt.Fprintf(out, "Environment variable: %s\n", metadata.EnvironmentVariable)
 			fmt.Fprintf(out, "OS secure store provider: %s\n", metadata.Provider)
@@ -298,6 +314,89 @@ func newConfigCommand() *cobra.Command {
 	}
 
 	return cmd
+}
+
+func newProviderCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "provider",
+		Short: "Choose the transcription provider",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runProviderSelector(cmd)
+		},
+	}
+
+	return cmd
+}
+
+func runProviderSelector(cmd *cobra.Command) error {
+	availability := inspectProviderAvailability()
+	out := cmd.OutOrStdout()
+	fmt.Fprintln(out, "Select transcription provider:")
+	fmt.Fprintln(out)
+
+	defaultChoice := 0
+	for i, option := range availability {
+		status := "available"
+		if !option.Available {
+			status = "unavailable - " + option.Message
+		}
+		fmt.Fprintf(out, "%d. %s %s\n", i+1, providerLabel(option.Provider), status)
+		if defaultChoice == 0 && option.Available {
+			defaultChoice = i + 1
+		}
+	}
+	if defaultChoice == 0 {
+		defaultChoice = 2
+	}
+
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "Choose provider [%d]: ", defaultChoice)
+	reader := bufio.NewReader(cmd.InOrStdin())
+	input, err := reader.ReadString('\n')
+	if err != nil && strings.TrimSpace(input) == "" {
+		return fmt.Errorf("read provider choice: %w", err)
+	}
+	input = strings.TrimSpace(input)
+	choice := defaultChoice
+	if input != "" {
+		parsed, err := strconv.Atoi(input)
+		if err != nil {
+			return fmt.Errorf("invalid provider choice %q", input)
+		}
+		choice = parsed
+	}
+	if choice < 1 || choice > len(availability) {
+		return fmt.Errorf("provider choice must be between 1 and %d", len(availability))
+	}
+
+	selected := availability[choice-1]
+	if !selected.Available && selected.Provider != transcription.ProviderDeepgram {
+		return fmt.Errorf("%s is not available on this computer/server: %s", selected.Provider, selected.Message)
+	}
+	if selected.Provider == transcription.ProviderDeepgram && !selected.Available {
+		if _, err := resolveDeepgramAPIKey(); err != nil {
+			return err
+		}
+	}
+
+	path, err := saveSelectedProvider(selected.Provider)
+	if err != nil {
+		return fmt.Errorf("save selected provider: %w", err)
+	}
+	fmt.Fprintf(out, "Selected provider saved: %s\n", selected.Provider)
+	fmt.Fprintf(out, "Config file: %s\n", path)
+	return nil
+}
+
+func providerLabel(provider transcription.Provider) string {
+	switch provider {
+	case transcription.ProviderWhisperCPP:
+		return "whisper.cpp"
+	case transcription.ProviderDeepgram:
+		return "Deepgram"
+	default:
+		return string(provider)
+	}
 }
 
 func printCredentialSaveResult(cmd *cobra.Command, result saveCredentialResult) {
@@ -329,12 +428,17 @@ func run(ctx context.Context, opts options) error {
 		opts.outputPath = trimia.DefaultOutputPath(opts.inputPath)
 	}
 
+	resolved, err := resolveTranscriber()
+	if err != nil {
+		return err
+	}
+
 	progress := newProgressPrinter()
 	result, err := trimia.Process(ctx, trimia.ProcessOptions{
 		InputPath:           opts.inputPath,
 		OutputPath:          opts.outputPath,
-		Transcriber:         whispercpp.NewTranscriber(whispercpp.Options{BinaryPath: os.Getenv("TRIMIA_WHISPER_CPP_BINARY"), ModelPath: os.Getenv("TRIMIA_WHISPER_CPP_MODEL")}),
-		TranscriberProvider: whispercpp.Provider,
+		Transcriber:         resolved.Transcriber,
+		TranscriberProvider: resolved.Provider,
 		RemoveSilence:       true,
 		RemoveFillerWords:   true,
 		Language:            opts.language,

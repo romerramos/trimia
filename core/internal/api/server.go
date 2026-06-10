@@ -6,20 +6,25 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"romerramos/trimia/internal/deepgram"
+	"romerramos/trimia/internal/transcription"
+	"romerramos/trimia/internal/whispercpp"
 )
 
 type Server struct {
-	apiKey               string
-	whisperCPPBinaryPath string
-	whisperCPPModelPath  string
-	store                *store
-	uploadTokenSecret    string
-	allowedOrigin        string
-	maxUploadBytes       int64
-	logger               *logger
+	transcriber         transcription.Transcriber
+	transcriberProvider transcription.Provider
+	store               *store
+	uploadTokenSecret   string
+	allowedOrigin       string
+	maxUploadBytes      int64
+	logger              *logger
 }
 
 type Options struct {
+	Transcriber          transcription.Transcriber
+	TranscriberProvider  transcription.Provider
 	DeepgramAPIKey       string
 	WhisperCPPBinaryPath string
 	WhisperCPPModelPath  string
@@ -54,15 +59,25 @@ func NewServer(opts Options) (*Server, error) {
 		return nil, err
 	}
 
+	transcriberProvider := transcription.ProviderOrDefault(opts.TranscriberProvider)
+	transcriber := opts.Transcriber
+	if transcriber == nil {
+		switch transcriberProvider {
+		case transcription.ProviderDeepgram:
+			transcriber = deepgram.NewTranscriber(opts.DeepgramAPIKey)
+		default:
+			transcriber = whispercpp.NewTranscriber(whispercpp.Options{BinaryPath: opts.WhisperCPPBinaryPath, ModelPath: opts.WhisperCPPModelPath})
+		}
+	}
+
 	return &Server{
-		apiKey:               opts.DeepgramAPIKey,
-		whisperCPPBinaryPath: opts.WhisperCPPBinaryPath,
-		whisperCPPModelPath:  opts.WhisperCPPModelPath,
-		store:                store,
-		uploadTokenSecret:    opts.UploadTokenSecret,
-		allowedOrigin:        opts.AllowedOrigin,
-		maxUploadBytes:       maxUploadBytes,
-		logger:               newLogger(opts.LogFormat, os.Stdout),
+		transcriber:         transcriber,
+		transcriberProvider: transcriberProvider,
+		store:               store,
+		uploadTokenSecret:   opts.UploadTokenSecret,
+		allowedOrigin:       opts.AllowedOrigin,
+		maxUploadBytes:      maxUploadBytes,
+		logger:              newLogger(opts.LogFormat, os.Stdout),
 	}, nil
 }
 

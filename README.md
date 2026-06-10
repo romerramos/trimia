@@ -85,7 +85,15 @@ cd core
 go mod download
 ```
 
-Trimia currently uses whisper.cpp for transcription by default. Build or install whisper.cpp, download a model, and point Trimia at both paths:
+Trimia can transcribe with whisper.cpp or Deepgram. Choose the provider with:
+
+```sh
+trimia provider
+```
+
+The selected provider is stored in `~/.trimia/config.json`. If no provider is selected, Trimia first checks whether whisper.cpp is configured and available on this computer/server. If whisper.cpp is not available, Trimia falls back to Deepgram and prompts for a Deepgram API key when needed.
+
+To use whisper.cpp, build or install whisper.cpp, download a model, and point Trimia at both paths:
 
 ```sh
 export TRIMIA_WHISPER_CPP_BINARY=/path/to/whisper.cpp/build/bin/whisper-cli
@@ -99,7 +107,7 @@ TRIMIA_WHISPER_CPP_BINARY=/path/to/whisper.cpp/build/bin/whisper-cli
 TRIMIA_WHISPER_CPP_MODEL=/path/to/whisper.cpp/models/ggml-small.bin
 ```
 
-Deepgram credential commands still exist for the previous transcriber integration, but Deepgram is not the default processing path right now. To save a Deepgram API key:
+To save a Deepgram API key directly:
 
 ```sh
 trimia connect
@@ -121,7 +129,7 @@ Remove saved credentials from both the OS secure store and the fallback config f
 trimia disconnect
 ```
 
-Trimia checks saved Deepgram credentials only when that integration is used. If no key is saved yet, Trimia prompts for it and saves it using the OS secure store first, then the fallback config file only if the secure store is unavailable.
+Trimia checks saved Deepgram credentials only when that integration is used. If Deepgram is selected and no key is saved yet, Trimia prompts for it and saves it using the OS secure store first, then the fallback config file only if the secure store is unavailable.
 
 For scripts or CI that still use Deepgram, you can also provide the key through the `DEEPGRAM_API_KEY` environment variable:
 
@@ -196,7 +204,7 @@ For browser uploads from the SvelteKit app, set the same `TRIMIA_UPLOAD_TOKEN_SE
 
 When started from `core`, the API loads `core/.env`, prints its non-secret upload configuration, and logs each request with status and duration. Upload token failures are logged with a specific reason, such as `invalid jwt signature` or `expired token`. Logs default to compact `human` output; set `TRIMIA_LOG_FORMAT=json` or pass `--log-format json` for structured logs.
 
-The API transcribes with whisper.cpp by default. Set `TRIMIA_WHISPER_CPP_BINARY` to the `whisper-cli` executable and `TRIMIA_WHISPER_CPP_MODEL` to a model file. The transcriber writes JSON with segment and token timing, so the Studio transcript can seek the video when a word is clicked.
+The API uses the selected transcription provider. If no provider is selected, it uses whisper.cpp when `TRIMIA_WHISPER_CPP_BINARY` points to the `whisper-cli` executable and `TRIMIA_WHISPER_CPP_MODEL` points to a model file; otherwise it falls back to Deepgram. The whisper.cpp transcriber writes JSON with segment and token timing, so the Studio transcript can seek the video when a word is clicked.
 
 Minimal flow:
 

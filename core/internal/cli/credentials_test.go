@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"romerramos/trimia/internal/transcription"
+
 	"github.com/zalando/go-keyring"
 )
 
@@ -70,6 +72,61 @@ func TestLoadFallbackDeepgramAPIKeyMissing(t *testing.T) {
 	_, err := loadFallbackDeepgramAPIKey()
 	if !errors.Is(err, keyring.ErrNotFound) {
 		t.Fatalf("load missing fallback key error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestSelectedProviderPreservesFallbackDeepgramAPIKey(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if _, err := saveFallbackDeepgramAPIKey("test-key"); err != nil {
+		t.Fatalf("save fallback key: %v", err)
+	}
+	if _, err := saveSelectedProvider(transcription.ProviderDeepgram); err != nil {
+		t.Fatalf("save selected provider: %v", err)
+	}
+
+	provider, err := loadSelectedProvider()
+	if err != nil {
+		t.Fatalf("load selected provider: %v", err)
+	}
+	if provider != transcription.ProviderDeepgram {
+		t.Fatalf("selected provider = %q, want %q", provider, transcription.ProviderDeepgram)
+	}
+
+	key, err := loadFallbackDeepgramAPIKey()
+	if err != nil {
+		t.Fatalf("load fallback key: %v", err)
+	}
+	if key != "test-key" {
+		t.Fatalf("fallback key = %q, want %q", key, "test-key")
+	}
+}
+
+func TestWhisperCPPAvailabilityRequiresEnvFiles(t *testing.T) {
+	t.Setenv(whisperCPPBinaryEnv, "")
+	t.Setenv(whisperCPPModelEnv, "")
+
+	missing := inspectWhisperCPPAvailability()
+	if missing.Available {
+		t.Fatal("whisper.cpp availability = true, want false without env")
+	}
+
+	dir := t.TempDir()
+	binaryPath := filepath.Join(dir, "whisper-cli")
+	modelPath := filepath.Join(dir, "ggml-small.bin")
+	if err := os.WriteFile(binaryPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write binary: %v", err)
+	}
+	if err := os.WriteFile(modelPath, []byte("model"), 0o600); err != nil {
+		t.Fatalf("write model: %v", err)
+	}
+	t.Setenv(whisperCPPBinaryEnv, binaryPath)
+	t.Setenv(whisperCPPModelEnv, modelPath)
+
+	available := inspectWhisperCPPAvailability()
+	if !available.Available {
+		t.Fatalf("whisper.cpp availability = false, want true: %s", available.Message)
 	}
 }
 
