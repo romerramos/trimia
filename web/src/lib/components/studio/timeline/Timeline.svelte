@@ -11,6 +11,7 @@
 	import type { TimelineItem, TimelineZoom } from './types';
 
 	const pixelsPerSecond = 48;
+	const dragPixelsPerSecond = pixelsPerSecond * 1.4;
 
 	let {
 		items,
@@ -50,7 +51,8 @@
 	let timelineElement = $state<HTMLDivElement>();
 	let scrollElement = $state<HTMLDivElement>();
 	let draggingPlayhead = $state(false);
-	let lastDragSourceTime = $state(0);
+	let dragSourceTime = $state(0);
+	let lastDragClientX = $state(0);
 
 	const timelineContentWidth = $derived(contentWidth(duration, zoom, pixelsPerSecond));
 	const playheadPosition = $derived(
@@ -62,7 +64,7 @@
 			return;
 		}
 
-		if (playingPreview || draggingPlayhead) {
+		if (playingPreview) {
 			centerOnTime(currentSourceTime);
 		}
 	});
@@ -75,33 +77,36 @@
 	}
 
 	function startDrag(event: PointerEvent) {
-		if (!timelineElement || previewRanges.length === 0) {
+		if (previewRanges.length === 0) {
 			return;
 		}
 
 		draggingPlayhead = true;
-		lastDragSourceTime = currentSourceTime;
+		dragSourceTime = currentSourceTime;
+		lastDragClientX = event.clientX;
 		(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-		drag(event);
 	}
 
 	function drag(event: PointerEvent) {
-		if (!draggingPlayhead || !timelineElement || duration <= 0) {
+		if (!draggingPlayhead || duration <= 0) {
 			return;
 		}
 
-		const rect = timelineElement.getBoundingClientRect();
-		const percent = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1);
-		const rawTime = percent * duration;
+		const deltaPixels = event.clientX - lastDragClientX;
+		if (deltaPixels === 0) {
+			return;
+		}
+
+		const rawTime = Math.min(Math.max(dragSourceTime + deltaPixels / dragPixelsPerSecond, 0), duration);
 		const resolvedTime = resolveAcceptedDragTime(
 			previewRanges,
 			rawTime,
-			rawTime >= lastDragSourceTime ? 'forward' : 'backward'
+			deltaPixels > 0 ? 'forward' : 'backward'
 		);
 
 		onDragTime(resolvedTime);
-		lastDragSourceTime = rawTime;
-		centerOnTime(resolvedTime);
+		dragSourceTime = resolvedTime;
+		lastDragClientX = event.clientX;
 	}
 
 	function endDrag(event: PointerEvent) {
