@@ -8,8 +8,8 @@ import (
 	"strconv"
 
 	"romerramos/trimia/internal/api"
-	"romerramos/trimia/internal/deepgram"
 	"romerramos/trimia/internal/trimia"
+	"romerramos/trimia/internal/whispercpp"
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
@@ -61,8 +61,8 @@ func newRootCommand() *cobra.Command {
 	cmd.Flags().StringVar(&opts.inputPath, "input", "", "input video path")
 	cmd.Flags().StringVar(&opts.outputPath, "output", "", "output video path")
 	cmd.Flags().BoolVar(&opts.overwrite, "overwrite", true, "overwrite output file")
-	cmd.Flags().StringVar(&opts.language, "language", "", "Deepgram language code; empty enables language detection")
-	cmd.Flags().BoolVar(&opts.detectLanguage, "detect-language", true, "ask Deepgram to detect the spoken language")
+	cmd.Flags().StringVar(&opts.language, "language", "", "transcription language code; empty enables language detection")
+	cmd.Flags().BoolVar(&opts.detectLanguage, "detect-language", true, "ask the transcriber to detect the spoken language")
 	cmd.Flags().Float64Var(&opts.preRoll, "pre-roll", 0.03, "seconds to keep before each speech segment")
 	cmd.Flags().Float64Var(&opts.postRoll, "post-roll", 0.06, "seconds to keep after each speech segment")
 	cmd.Flags().Float64Var(&opts.mergeGap, "merge-gap", 0.12, "merge speech segments separated by this many seconds")
@@ -97,11 +97,6 @@ func newServeCommand() *cobra.Command {
 				return err
 			}
 
-			apiKey, err := resolveDeepgramAPIKey()
-			if err != nil {
-				return err
-			}
-
 			if uploadTokenSecret == "" {
 				uploadTokenSecret = os.Getenv("TRIMIA_UPLOAD_TOKEN_SECRET")
 			}
@@ -124,12 +119,14 @@ func newServeCommand() *cobra.Command {
 			}
 
 			server, err := api.NewServer(api.Options{
-				DeepgramAPIKey:    apiKey,
-				DataDir:           dataDir,
-				UploadTokenSecret: uploadTokenSecret,
-				AllowedOrigin:     allowedOrigin,
-				MaxUploadBytes:    maxUploadBytes,
-				LogFormat:         parsedLogFormat,
+				DeepgramAPIKey:       os.Getenv("DEEPGRAM_API_KEY"),
+				WhisperCPPBinaryPath: os.Getenv("TRIMIA_WHISPER_CPP_BINARY"),
+				WhisperCPPModelPath:  os.Getenv("TRIMIA_WHISPER_CPP_MODEL"),
+				DataDir:              dataDir,
+				UploadTokenSecret:    uploadTokenSecret,
+				AllowedOrigin:        allowedOrigin,
+				MaxUploadBytes:       maxUploadBytes,
+				LogFormat:            parsedLogFormat,
 			})
 			if err != nil {
 				return err
@@ -144,6 +141,7 @@ func newServeCommand() *cobra.Command {
 			fmt.Fprintf(out, "Allowed origin: %s\n", server.AllowedOrigin())
 			fmt.Fprintf(out, "Max upload bytes: %d\n", server.MaxUploadBytes())
 			fmt.Fprintf(out, "Log format: %s\n", parsedLogFormat)
+			fmt.Fprintln(out, "Transcriber: whispercpp")
 			return http.ListenAndServe(addr, server.Handler())
 		},
 	}
@@ -327,11 +325,6 @@ func run(ctx context.Context, opts options) error {
 		return fmt.Errorf("check .env: %w", err)
 	}
 
-	apiKey, err := resolveDeepgramAPIKey()
-	if err != nil {
-		return err
-	}
-
 	if opts.outputPath == "" {
 		opts.outputPath = trimia.DefaultOutputPath(opts.inputPath)
 	}
@@ -340,8 +333,8 @@ func run(ctx context.Context, opts options) error {
 	result, err := trimia.Process(ctx, trimia.ProcessOptions{
 		InputPath:           opts.inputPath,
 		OutputPath:          opts.outputPath,
-		Transcriber:         deepgram.NewTranscriber(apiKey),
-		TranscriberProvider: deepgram.Provider,
+		Transcriber:         whispercpp.NewTranscriber(whispercpp.Options{BinaryPath: os.Getenv("TRIMIA_WHISPER_CPP_BINARY"), ModelPath: os.Getenv("TRIMIA_WHISPER_CPP_MODEL")}),
+		TranscriberProvider: whispercpp.Provider,
 		RemoveSilence:       true,
 		RemoveFillerWords:   true,
 		Language:            opts.language,

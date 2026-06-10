@@ -252,7 +252,7 @@ func (j *jobSnapshot) restore() *jobRecord {
 
 func restoredTranscriberProvider(provider string) transcription.Provider {
 	if provider == "" {
-		return transcription.ProviderDeepgram
+		return transcription.ProviderWhisperCPP
 	}
 
 	return transcription.Provider(provider)

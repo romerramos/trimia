@@ -9,7 +9,8 @@ import (
 type Provider string
 
 const (
-	ProviderDeepgram Provider = "deepgram"
+	ProviderDeepgram   Provider = "deepgram"
+	ProviderWhisperCPP Provider = "whispercpp"
 )
 
 type Transcriber interface {
@@ -109,7 +110,7 @@ func JoinWords(words []Word) string {
 
 func ProviderOrDefault(provider Provider) Provider {
 	if provider == "" {
-		return ProviderDeepgram
+		return ProviderWhisperCPP
 	}
 
 	return provider

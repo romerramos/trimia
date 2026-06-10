@@ -1,13 +1,14 @@
 # Trimia
 
-Trimia removes silence and filler words from videos. It extracts audio with ffmpeg, transcribes the audio with Deepgram, builds clean speech segments, and renders a new video that keeps only the selected segments.
+Trimia removes silence and filler words from videos. It extracts WAV audio with ffmpeg, transcribes the audio with whisper.cpp, builds clean speech segments, and renders a new video that keeps only the selected segments.
 
 ## Requirements
 
 - Go 1.25.1 or newer
 - `ffmpeg` and `ffprobe` installed and available in `PATH`
 - `audiowaveform` installed and available in `PATH` for timeline waveform generation
-- A Deepgram API key
+- `whisper-cli` from whisper.cpp
+- A whisper.cpp model file. `ggml-small.bin` is the recommended starting point for Spanish content.
 
 On macOS, media dependencies can be installed with Homebrew:
 
@@ -84,7 +85,21 @@ cd core
 go mod download
 ```
 
-Trimia uses Deepgram for transcription. Create a Deepgram account to get an API key, then save it:
+Trimia currently uses whisper.cpp for transcription by default. Build or install whisper.cpp, download a model, and point Trimia at both paths:
+
+```sh
+export TRIMIA_WHISPER_CPP_BINARY=/path/to/whisper.cpp/build/bin/whisper-cli
+export TRIMIA_WHISPER_CPP_MODEL=/path/to/whisper.cpp/models/ggml-small.bin
+```
+
+When building from source, you can also create a `.env` file in `core`:
+
+```sh
+TRIMIA_WHISPER_CPP_BINARY=/path/to/whisper.cpp/build/bin/whisper-cli
+TRIMIA_WHISPER_CPP_MODEL=/path/to/whisper.cpp/models/ggml-small.bin
+```
+
+Deepgram credential commands still exist for the previous transcriber integration, but Deepgram is not the default processing path right now. To save a Deepgram API key:
 
 ```sh
 trimia connect
@@ -106,15 +121,15 @@ Remove saved credentials from both the OS secure store and the fallback config f
 trimia disconnect
 ```
 
-Trimia checks saved credentials during normal interactive use. If no key is saved yet, Trimia prompts for it and saves it using the OS secure store first, then the fallback config file only if the secure store is unavailable.
+Trimia checks saved Deepgram credentials only when that integration is used. If no key is saved yet, Trimia prompts for it and saves it using the OS secure store first, then the fallback config file only if the secure store is unavailable.
 
-For scripts or CI, you can also provide the key through the `DEEPGRAM_API_KEY` environment variable:
+For scripts or CI that still use Deepgram, you can also provide the key through the `DEEPGRAM_API_KEY` environment variable:
 
 ```sh
 export DEEPGRAM_API_KEY=your_deepgram_api_key_here
 ```
 
-When building from source, you can also create a `.env` file in the project root:
+When building from source, Deepgram credentials can also be placed in `core/.env`:
 
 ```sh
 DEEPGRAM_API_KEY=your_deepgram_api_key_here
@@ -181,6 +196,8 @@ For browser uploads from the SvelteKit app, set the same `TRIMIA_UPLOAD_TOKEN_SE
 
 When started from `core`, the API loads `core/.env`, prints its non-secret upload configuration, and logs each request with status and duration. Upload token failures are logged with a specific reason, such as `invalid jwt signature` or `expired token`. Logs default to compact `human` output; set `TRIMIA_LOG_FORMAT=json` or pass `--log-format json` for structured logs.
 
+The API transcribes with whisper.cpp by default. Set `TRIMIA_WHISPER_CPP_BINARY` to the `whisper-cli` executable and `TRIMIA_WHISPER_CPP_MODEL` to a model file. The transcriber writes JSON with segment and token timing, so the Studio transcript can seek the video when a word is clicked.
+
 Minimal flow:
 
 1. Upload media with `POST /api/media` using multipart form field `file`.
@@ -220,7 +237,7 @@ Save reviewed segments:
       "start": 0.35,
       "end": 8.95,
       "text": "Today we're going to look at the first prototype.",
-      "source": "deepgram",
+      "source": "whispercpp",
       "included": true
     }
   ]

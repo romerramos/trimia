@@ -1,7 +1,6 @@
 package api
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -10,30 +9,30 @@ import (
 )
 
 type Server struct {
-	apiKey            string
-	store             *store
-	uploadTokenSecret string
-	allowedOrigin     string
-	maxUploadBytes    int64
-	logger            *logger
+	apiKey               string
+	whisperCPPBinaryPath string
+	whisperCPPModelPath  string
+	store                *store
+	uploadTokenSecret    string
+	allowedOrigin        string
+	maxUploadBytes       int64
+	logger               *logger
 }
 
 type Options struct {
-	DeepgramAPIKey    string
-	DataDir           string
-	UploadTokenSecret string
-	AllowedOrigin     string
-	MaxUploadBytes    int64
-	LogFormat         LogFormat
+	DeepgramAPIKey       string
+	WhisperCPPBinaryPath string
+	WhisperCPPModelPath  string
+	DataDir              string
+	UploadTokenSecret    string
+	AllowedOrigin        string
+	MaxUploadBytes       int64
+	LogFormat            LogFormat
 }
 
 const defaultMaxUploadBytes int64 = 5 * 1024 * 1024 * 1024
 
 func NewServer(opts Options) (*Server, error) {
-	if opts.DeepgramAPIKey == "" {
-		return nil, errors.New("deepgram api key is required")
-	}
-
 	dataDir := opts.DataDir
 	if dataDir == "" {
 		dataDir = filepath.Join(os.TempDir(), "trimia-api")
@@ -56,12 +55,14 @@ func NewServer(opts Options) (*Server, error) {
 	}
 
 	return &Server{
-		apiKey:            opts.DeepgramAPIKey,
-		store:             store,
-		uploadTokenSecret: opts.UploadTokenSecret,
-		allowedOrigin:     opts.AllowedOrigin,
-		maxUploadBytes:    maxUploadBytes,
-		logger:            newLogger(opts.LogFormat, os.Stdout),
+		apiKey:               opts.DeepgramAPIKey,
+		whisperCPPBinaryPath: opts.WhisperCPPBinaryPath,
+		whisperCPPModelPath:  opts.WhisperCPPModelPath,
+		store:                store,
+		uploadTokenSecret:    opts.UploadTokenSecret,
+		allowedOrigin:        opts.AllowedOrigin,
+		maxUploadBytes:       maxUploadBytes,
+		logger:               newLogger(opts.LogFormat, os.Stdout),
 	}, nil
 }
 

@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"romerramos/trimia/internal/deepgram"
 	"romerramos/trimia/internal/trimia"
+	"romerramos/trimia/internal/whispercpp"
 )
 
 func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
@@ -38,7 +38,7 @@ func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
 		Progress: 0,
 		Options: trimia.AnalyzeOptions{
 			InputPath:           media.Path,
-			TranscriberProvider: deepgram.Provider,
+			TranscriberProvider: whispercpp.Provider,
 			RemoveSilence:       req.Options.RemoveSilence,
 			RemoveFillerWords:   req.Options.RemoveFillerWords,
 			Language:            req.Options.Language,
@@ -140,7 +140,7 @@ func (s *Server) jobAnalyzeOptions(jobID string, progress trimia.ProgressFunc) t
 	defer s.store.mu.RUnlock()
 	job := s.store.jobs[jobID]
 	opts := job.Options
-	opts.Transcriber = deepgram.NewTranscriber(s.apiKey)
+	opts.Transcriber = whispercpp.NewTranscriber(whispercpp.Options{BinaryPath: s.whisperCPPBinaryPath, ModelPath: s.whisperCPPModelPath})
 	if media := s.store.media[job.MediaID]; media != nil && media.AudioStatus == "audio_ready" {
 		opts.AudioPath = media.AudioPath
 	}

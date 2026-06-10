@@ -10,10 +10,13 @@ import (
 	"time"
 )
 
-func TestNewServerRequiresDeepgramAPIKey(t *testing.T) {
-	_, err := NewServer(Options{DataDir: t.TempDir()})
-	if err == nil {
-		t.Fatal("expected error")
+func TestNewServerDoesNotRequireDeepgramAPIKey(t *testing.T) {
+	server, err := NewServer(Options{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server == nil {
+		t.Fatal("expected server")
 	}
 }
 
