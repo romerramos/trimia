@@ -48,7 +48,7 @@ func TestToTranscriptionConvertsSegmentsAndWords(t *testing.T) {
 			{Text: "[_BEG_]", Offsets: Offsets{From: 0, To: 0}, P: 0.7},
 			{Text: " vamos", Offsets: Offsets{From: 680, To: 680}, P: 0.42},
 			{Text: " a", Offsets: Offsets{From: 720, To: 800}, P: 0.96},
-			{Text: " hablar", Offsets: Offsets{From: 1280, To: 1620}, P: 0.99},
+			{Text: " hablar", Offsets: Offsets{From: 820, To: 1620}, P: 0.99},
 			{Text: " del", Offsets: Offsets{From: 1620, To: 1900}, P: 0.98},
 			{Text: " mindset", Offsets: Offsets{From: 2170, To: 3000}, P: 0.87},
 			{Text: ",", Offsets: Offsets{From: 3000, To: 3070}, P: 0.71},
@@ -80,6 +80,55 @@ func TestToTranscriptionConvertsSegmentsAndWords(t *testing.T) {
 	}
 	if word.Start != 2.17 || word.End != 3.07 || word.Confidence != 0.71 {
 		t.Fatalf("merged word timing/confidence = %#v", word)
+	}
+}
+
+func TestToTranscriptionSplitsSegmentsOnWordGaps(t *testing.T) {
+	response := &TranscriptionResponse{Transcription: []TranscriptionItem{{
+		Offsets: Offsets{From: 0, To: 2400},
+		Text:    " Hello world. Next phrase.",
+		Tokens: []Token{
+			{Text: " Hello", Offsets: Offsets{From: 100, To: 500}, P: 0.99},
+			{Text: " world", Offsets: Offsets{From: 600, To: 900}, P: 0.98},
+			{Text: ".", Offsets: Offsets{From: 900, To: 960}, P: 0.97},
+			{Text: " Next", Offsets: Offsets{From: 1500, To: 1900}, P: 0.96},
+			{Text: " phrase", Offsets: Offsets{From: 1950, To: 2300}, P: 0.95},
+			{Text: ".", Offsets: Offsets{From: 2300, To: 2400}, P: 0.94},
+		},
+	}}}
+
+	result := ToTranscription(response)
+	if len(result.Segments) != 2 {
+		t.Fatalf("segments len = %d, want 2: %#v", len(result.Segments), result.Segments)
+	}
+	if result.Segments[0].Text != "Hello world." || result.Segments[0].Start != 0.1 || result.Segments[0].End != 0.96 {
+		t.Fatalf("first segment = %#v", result.Segments[0])
+	}
+	if result.Segments[1].Text != "Next phrase." || result.Segments[1].Start != 1.5 || result.Segments[1].End != 2.4 {
+		t.Fatalf("second segment = %#v", result.Segments[1])
+	}
+	if len(result.Segments[0].Words) != 2 || len(result.Segments[1].Words) != 2 {
+		t.Fatalf("segment words = %#v %#v", result.Segments[0].Words, result.Segments[1].Words)
+	}
+}
+
+func TestToTranscriptionSplitsLongSegmentsAfterSentence(t *testing.T) {
+	response := &TranscriptionResponse{Transcription: []TranscriptionItem{{
+		Offsets: Offsets{From: 0, To: 3500},
+		Text:    " One sentence. Another sentence.",
+		Tokens: []Token{
+			{Text: " One", Offsets: Offsets{From: 0, To: 900}, P: 0.99},
+			{Text: " sentence", Offsets: Offsets{From: 1000, To: 2100}, P: 0.98},
+			{Text: ".", Offsets: Offsets{From: 2100, To: 2150}, P: 0.97},
+			{Text: " Another", Offsets: Offsets{From: 2200, To: 2800}, P: 0.96},
+			{Text: " sentence", Offsets: Offsets{From: 2900, To: 3400}, P: 0.95},
+			{Text: ".", Offsets: Offsets{From: 3400, To: 3500}, P: 0.94},
+		},
+	}}}
+
+	result := ToTranscription(response)
+	if len(result.Segments) != 2 {
+		t.Fatalf("segments len = %d, want 2: %#v", len(result.Segments), result.Segments)
 	}
 }
 

@@ -10,6 +10,12 @@ import (
 
 const Provider = transcription.ProviderWhisperCPP
 
+const (
+	defaultSilenceGap         = 0.35
+	defaultSentenceMinSeconds = 2.0
+	defaultMaxSegmentSeconds  = 12.0
+)
+
 type Transcriber struct {
 	client Client
 }
@@ -121,21 +127,66 @@ func startsWithSpace(text string) bool {
 }
 
 func cleanSegments(segments []transcription.Segment) []transcription.Segment {
-	clean := make([]transcription.Segment, 0, len(segments))
+	words := make([]transcription.Word, 0)
 	for _, segment := range segments {
-		words := transcription.NonFillerWords(segment.Words)
-		if len(words) == 0 {
-			continue
-		}
-
-		clean = append(clean, transcription.Segment{
-			Text:  transcription.JoinWords(words),
-			Start: words[0].Start,
-			End:   words[len(words)-1].End,
-			Words: words,
-		})
+		words = append(words, transcription.NonFillerWords(segment.Words)...)
 	}
+	return segmentsFromWords(words)
+}
+
+func segmentsFromWords(words []transcription.Word) []transcription.Segment {
+	clean := make([]transcription.Segment, 0, len(words))
+	if len(words) == 0 {
+		return clean
+	}
+
+	start := 0
+	for i := 1; i < len(words); i++ {
+		previous := words[i-1]
+		current := words[i]
+		if shouldSplitSegment(words[start], previous, current) {
+			clean = append(clean, segmentFromWords(words[start:i]))
+			start = i
+		}
+	}
+	clean = append(clean, segmentFromWords(words[start:]))
+
 	return clean
+}
+
+func shouldSplitSegment(first transcription.Word, previous transcription.Word, current transcription.Word) bool {
+	if current.Start-previous.End >= defaultSilenceGap {
+		return true
+	}
+
+	duration := previous.End - first.Start
+	if duration >= defaultMaxSegmentSeconds {
+		return true
+	}
+
+	if duration >= defaultSentenceMinSeconds && endsSentence(previous.PunctuatedWord) {
+		return true
+	}
+
+	return false
+}
+
+func segmentFromWords(words []transcription.Word) transcription.Segment {
+	return transcription.Segment{
+		Text:  transcription.JoinWords(words),
+		Start: words[0].Start,
+		End:   words[len(words)-1].End,
+		Words: words,
+	}
+}
+
+func endsSentence(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+	last := text[len(text)-1]
+	return last == '.' || last == '?' || last == '!'
 }
 
 func joinSegmentText(segments []transcription.Segment) string {

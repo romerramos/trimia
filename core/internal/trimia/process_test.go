@@ -12,13 +12,20 @@ import (
 
 type fakeMediaProcessor struct {
 	extractOpts ffmpeg.ExtractAudioOptions
+	silenceOpts ffmpeg.DetectSilenceOptions
 	cutOpts     ffmpeg.CutVideoOptions
 	durations   map[string]float64
+	silences    []ffmpeg.SilenceRange
 }
 
 func (f *fakeMediaProcessor) ExtractAudio(_ context.Context, opts ffmpeg.ExtractAudioOptions) error {
 	f.extractOpts = opts
 	return os.WriteFile(opts.OutputPath, []byte("audio"), 0644)
+}
+
+func (f *fakeMediaProcessor) DetectSilence(_ context.Context, opts ffmpeg.DetectSilenceOptions) ([]ffmpeg.SilenceRange, error) {
+	f.silenceOpts = opts
+	return f.silences, nil
 }
 
 func (f *fakeMediaProcessor) CutVideo(_ context.Context, opts ffmpeg.CutVideoOptions) error {
@@ -124,6 +131,113 @@ func TestProcessOrchestratesTrimPipeline(t *testing.T) {
 
 	if result.InputDurationSeconds != 10 || result.OutputDurationSeconds != 6 || result.RemovedSeconds != 4 || result.RemovedPercent != 40 {
 		t.Fatalf("duration metrics = %#v", result)
+	}
+}
+
+func TestAnalyzeSplitsSegmentsAroundDetectedAudioSilence(t *testing.T) {
+	inputPath := filepath.Join(t.TempDir(), "input.mp4")
+	if err := os.WriteFile(inputPath, []byte("video"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	words := []transcription.Word{
+		{Word: "estas", PunctuatedWord: "estas", Start: 48.2, End: 48.44, Confidence: 0.97},
+		{Word: "respuestas", PunctuatedWord: "respuestas,", Start: 52.28, End: 54.45, Confidence: 0.59},
+		{Word: "de", PunctuatedWord: "de", Start: 54.45, End: 55.39, Confidence: 0.49},
+		{Word: "que", PunctuatedWord: "que", Start: 55.39, End: 56.62, Confidence: 0.99},
+		{Word: "es", PunctuatedWord: "es", Start: 56.84, End: 57.72, Confidence: 0.98},
+		{Word: "un", PunctuatedWord: "un", Start: 57.74, End: 58.67, Confidence: 0.99},
+		{Word: "programador", PunctuatedWord: "programador", Start: 58.67, End: 63.82, Confidence: 0.96},
+	}
+	mediaProcessor := &fakeMediaProcessor{
+		durations: map[string]float64{inputPath: 70},
+		silences: []ffmpeg.SilenceRange{
+			{Start: 53.57, End: 60.65},
+			{Start: 61.096, End: 61.46},
+			{Start: 61.46, End: 61.883},
+			{Start: 62.955, End: 63.387},
+		},
+	}
+	transcriber := &fakeTranscriber{response: &transcription.Transcription{
+		Provider: transcription.ProviderWhisperCPP,
+		Segments: []transcription.Segment{{
+			Text:  transcription.JoinWords(words),
+			Start: 48.2,
+			End:   63.82,
+			Words: words,
+		}},
+	}}
+	pipeline := pipeline{mediaProcessor: mediaProcessor, transcriber: transcriber}
+
+	result, err := pipeline.Analyze(context.Background(), AnalyzeOptions{InputPath: inputPath, Transcriber: transcriber})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Segments) != 4 {
+		t.Fatalf("segments len = %d, want 4: %#v", len(result.Segments), result.Segments)
+	}
+
+	first := result.Segments[0]
+	if first.Start != 48.2 || first.End != 53.57 || first.Text != "estas respuestas," {
+		t.Fatalf("first segment = %#v", first)
+	}
+	second := result.Segments[1]
+	if second.Start != 60.65 || second.End != 61.096 || second.Text != "" {
+		t.Fatalf("second segment = %#v", second)
+	}
+	third := result.Segments[2]
+	if third.Start != 61.883 || third.End != 62.955 || third.Text != "programador" {
+		t.Fatalf("third segment = %#v", third)
+	}
+	if len(third.Words) != 1 || third.Words[0].Start != 61.883 {
+		t.Fatalf("third words = %#v", third.Words)
+	}
+	fourth := result.Segments[3]
+	if fourth.Start != 63.387 || fourth.End != 63.82 || fourth.Text != "" {
+		t.Fatalf("fourth segment = %#v", fourth)
+	}
+}
+
+func TestRemoveSilencesPreservesUncaptionedNonSilentGap(t *testing.T) {
+	segments := []transcription.Segment{
+		{Text: "first", Start: 100, End: 109.62, Words: []transcription.Word{{Word: "first", PunctuatedWord: "first", Start: 109, End: 109.62}}},
+		{Text: "second", Start: 110.14, End: 112, Words: []transcription.Word{{Word: "second", PunctuatedWord: "second", Start: 110.14, End: 111}}},
+	}
+
+	refined := removeSilencesFromSegments(segments, nil)
+	if len(refined) != 2 {
+		t.Fatalf("nil silences should not add gaps: %#v", refined)
+	}
+
+	refined = removeSilencesFromSegments(segments, []ffmpeg.SilenceRange{{Start: 99, End: 99.5}})
+	if len(refined) != 3 {
+		t.Fatalf("segments len = %d, want 3: %#v", len(refined), refined)
+	}
+	gap := refined[1]
+	if gap.Start != 109.62 || gap.End != 110.14 || gap.Text != "" || len(gap.Words) != 0 {
+		t.Fatalf("gap = %#v", gap)
+	}
+}
+
+func TestAnalyzeDoesNotRunAudioSilenceDetectionForDeepgram(t *testing.T) {
+	inputPath := filepath.Join(t.TempDir(), "input.mp4")
+	if err := os.WriteFile(inputPath, []byte("video"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	mediaProcessor := &fakeMediaProcessor{
+		durations: map[string]float64{inputPath: 10},
+		silences:  []ffmpeg.SilenceRange{{Start: 1, End: 2}},
+	}
+	transcriber := &fakeTranscriber{response: transcriptionResponseWithWords()}
+	pipeline := pipeline{mediaProcessor: mediaProcessor, transcriber: transcriber}
+
+	_, err := pipeline.Analyze(context.Background(), AnalyzeOptions{InputPath: inputPath, Transcriber: transcriber})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mediaProcessor.silenceOpts.AudioPath != "" {
+		t.Fatalf("expected no silence detection for deepgram, got %#v", mediaProcessor.silenceOpts)
 	}
 }
 

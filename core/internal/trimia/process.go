@@ -14,9 +14,12 @@ import (
 )
 
 const (
-	defaultPreRoll  = 0.03
-	defaultPostRoll = 0.06
-	defaultMergeGap = 0.12
+	defaultPreRoll                   = 0.03
+	defaultPostRoll                  = 0.06
+	defaultMergeGap                  = 0.12
+	minimumSegmentDuration           = 0.05
+	minimumWordOverlap               = 0.05
+	minimumUncaptionedSpeechDuration = 0.25
 )
 
 type ProcessOptions struct {
@@ -302,7 +305,143 @@ func toSegments(cleanSegments []transcription.Segment) []Segment {
 	}
 
 	return normalizeSegments(segments)
+}
 
+func removeSilencesFromSegments(segments []transcription.Segment, silences []ffmpeg.SilenceRange) []transcription.Segment {
+	if len(segments) == 0 || len(silences) == 0 {
+		return segments
+	}
+
+	refined := make([]transcription.Segment, 0, len(segments))
+	for _, segment := range segments {
+		ranges := speechRangesAfterSilence(segment.Start, segment.End, silences)
+		wordsByRange := wordsByBestRange(segment.Words, ranges)
+		for i, speechRange := range ranges {
+			words := wordsByRange[i]
+			if len(words) == 0 {
+				if speechRange.End-speechRange.Start >= minimumUncaptionedSpeechDuration {
+					refined = append(refined, transcription.Segment{Start: speechRange.Start, End: speechRange.End})
+				}
+				continue
+			}
+
+			refined = append(refined, transcription.Segment{
+				Text:  transcription.JoinWords(words),
+				Start: maxFloat(speechRange.Start, words[0].Start),
+				End:   minFloat(speechRange.End, words[len(words)-1].End),
+				Words: words,
+			})
+		}
+	}
+
+	return insertUncaptionedSpeechGaps(refined, silences)
+}
+
+func insertUncaptionedSpeechGaps(segments []transcription.Segment, silences []ffmpeg.SilenceRange) []transcription.Segment {
+	if len(segments) < 2 {
+		return segments
+	}
+
+	withGaps := make([]transcription.Segment, 0, len(segments))
+	for i, segment := range segments {
+		if i > 0 {
+			previous := segments[i-1]
+			if segment.Start > previous.End {
+				for _, speechRange := range speechRangesAfterSilence(previous.End, segment.Start, silences) {
+					if speechRange.End-speechRange.Start >= minimumUncaptionedSpeechDuration {
+						withGaps = append(withGaps, transcription.Segment{Start: speechRange.Start, End: speechRange.End})
+					}
+				}
+			}
+		}
+		withGaps = append(withGaps, segment)
+	}
+
+	return withGaps
+}
+
+func speechRangesAfterSilence(start, end float64, silences []ffmpeg.SilenceRange) []ffmpeg.SilenceRange {
+	ranges := []ffmpeg.SilenceRange{{Start: start, End: end}}
+	for _, silence := range silences {
+		if silence.End <= start || silence.Start >= end {
+			continue
+		}
+
+		next := make([]ffmpeg.SilenceRange, 0, len(ranges)+1)
+		for _, speech := range ranges {
+			if silence.End <= speech.Start || silence.Start >= speech.End {
+				next = append(next, speech)
+				continue
+			}
+
+			leftEnd := minFloat(speech.End, silence.Start)
+			if leftEnd-speech.Start >= minimumSegmentDuration {
+				next = append(next, ffmpeg.SilenceRange{Start: speech.Start, End: leftEnd})
+			}
+
+			rightStart := maxFloat(speech.Start, silence.End)
+			if speech.End-rightStart >= minimumSegmentDuration {
+				next = append(next, ffmpeg.SilenceRange{Start: rightStart, End: speech.End})
+			}
+		}
+		ranges = next
+		if len(ranges) == 0 {
+			break
+		}
+	}
+
+	return ranges
+}
+
+func wordsByBestRange(words []transcription.Word, ranges []ffmpeg.SilenceRange) [][]transcription.Word {
+	grouped := make([][]transcription.Word, len(ranges))
+	for _, word := range words {
+		bestIndex := -1
+		bestOverlap := 0.0
+		for i, speechRange := range ranges {
+			overlap := overlapDuration(word.Start, word.End, speechRange.Start, speechRange.End)
+			if overlap > bestOverlap {
+				bestIndex = i
+				bestOverlap = overlap
+			}
+		}
+		if bestIndex < 0 || bestOverlap < minimumWordOverlap {
+			continue
+		}
+
+		speechRange := ranges[bestIndex]
+		word.Start = maxFloat(word.Start, speechRange.Start)
+		word.End = minFloat(word.End, speechRange.End)
+		if word.End <= word.Start {
+			continue
+		}
+		grouped[bestIndex] = append(grouped[bestIndex], word)
+	}
+
+	return grouped
+}
+
+func overlapDuration(aStart, aEnd, bStart, bEnd float64) float64 {
+	start := maxFloat(aStart, bStart)
+	end := minFloat(aEnd, bEnd)
+	if end <= start {
+		return 0
+	}
+	return end - start
+}
+
+func minFloat(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxFloat(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func normalizeSegments(segments []Segment) []Segment {

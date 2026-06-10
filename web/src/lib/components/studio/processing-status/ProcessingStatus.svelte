@@ -42,7 +42,7 @@
 			</div>
 			{#if indeterminate}
 				<p class="text-xs text-muted-foreground">
-					Transcribing audio with Deepgram… this may take a while.
+					Transcribing audio… this may take a while.
 				</p>
 			{/if}
 		</div>

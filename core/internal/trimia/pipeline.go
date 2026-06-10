@@ -16,6 +16,7 @@ import (
 
 type mediaProcessor interface {
 	ExtractAudio(context.Context, ffmpeg.ExtractAudioOptions) error
+	DetectSilence(context.Context, ffmpeg.DetectSilenceOptions) ([]ffmpeg.SilenceRange, error)
 	CutVideo(context.Context, ffmpeg.CutVideoOptions) error
 	ProbeDuration(context.Context, string) (float64, error)
 }
@@ -158,6 +159,21 @@ func (p pipeline) Analyze(ctx context.Context, opts AnalyzeOptions) (*AnalysisRe
 	cleanSegments := transcript.Segments
 	if len(cleanSegments) == 0 {
 		return nil, errors.New("no speech segments found")
+	}
+	if processOpts.RemoveSilence && transcript.Provider == transcription.ProviderWhisperCPP {
+		p.logf("detect silence: starting")
+		silences, err := p.mediaProcessor.DetectSilence(ctx, ffmpeg.DetectSilenceOptions{
+			AudioPath: audioPath,
+			LogWriter: p.logWriter,
+		})
+		if err != nil {
+			return nil, err
+		}
+		p.logf("detect silence: completed ranges=%d", len(silences))
+		cleanSegments = removeSilencesFromSegments(cleanSegments, silences)
+		if len(cleanSegments) == 0 {
+			return nil, errors.New("no speech segments found after silence detection")
+		}
 	}
 	p.logf("segments: clean=%d filler_words=%d", len(cleanSegments), len(transcript.FillerWords))
 
